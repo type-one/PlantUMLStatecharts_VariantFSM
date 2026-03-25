@@ -1,0 +1,6 @@
+*.plantuml
+*.hpp
+*.cpp
+*.gch
+*.out
+__pycache__

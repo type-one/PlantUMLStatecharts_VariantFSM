@@ -8,7 +8,9 @@ def check(exp):
         raise Exception()
 
 def check_AST(root):
-    check(root.data == 'state_diagram')
+    # The 'start' rule now directly contains all children (grammar removed the
+    # intermediate state_diagram wrapper node).
+    check(root.data == 'start')
     check(len(root.children) == 21)
     c = 0
 
@@ -17,56 +19,56 @@ def check_AST(root):
     c += 1
 
     # '[header] ceci est un header 1
-    check(root.children[c].data == 'cpp_code')
+    check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[header]')
     check(root.children[c].children[1].strip() == 'ceci est un header 1')
     c += 1
 
     # '[header] ceci est un header 2
-    check(root.children[c].data == 'cpp_code')
+    check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[header]')
     check(root.children[c].children[1].strip() == 'ceci est un header 2')
     c += 1
 
     # '[footer] ceci est un footer 1
-    check(root.children[c].data == 'cpp_code')
+    check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[footer]')
     check(root.children[c].children[1].strip() == 'ceci est un footer 1')
     c += 1
 
     # '[footer] ceci est un footer 2
-    check(root.children[c].data == 'cpp_code')
+    check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[footer]')
     check(root.children[c].children[1].strip() == 'ceci est un footer 2')
     c += 1
 
     # '[init] a = 0;
-    check(root.children[c].data == 'cpp_code')
+    check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[init]')
     check(root.children[c].children[1].strip() == 'a = 0;')
     c += 1
 
     # '[init] b = "ff";
-    check(root.children[c].data == 'cpp_code')
+    check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[init]')
     check(root.children[c].children[1].strip() == 'b = "ff";')
     c += 1
 
     # '[code] int foo();
-    check(root.children[c].data == 'cpp_code')
+    check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[code]')
     check(root.children[c].children[1].strip() == 'int foo();')
     c += 1
 
     # '[code] virtual std::string foo(std::foo<Bar> const& arg[]) = 0;
-    check(root.children[c].data == 'cpp_code')
+    check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[code]')
     check(root.children[c].children[1].strip() == 'virtual std::string foo(std::foo<Bar> const& arg[]) = 0;')
@@ -205,20 +207,20 @@ def check_AST(root):
     #   ON -> OFF : off
     #   OFF -> ON : on
     # }
+    # Grammar changed: state_block now holds [StateName, transition...] directly
+    # instead of [StateName, state_diagram([transitions])].
     check(root.children[c].data == 'state_block')
-    check(len(root.children[c].children) == 2)
-    check(root.children[c].children[0] == 'State11')
-    check(root.children[c].children[1].data == 'state_diagram')
-    check(len(root.children[c].children[1].children) == 3)
+    check(len(root.children[c].children) == 4)  # Token + 3 transitions
+    check(str(root.children[c].children[0]) == 'State11')
 
-    c0 = root.children[c].children[1].children[0]
+    c0 = root.children[c].children[1]
     check(c0.data == 'transition')
     check(len(c0.children) == 3)
     check(c0.children[0] == '[*]')
     check(c0.children[1] == '->')
     check(c0.children[2] == 'ON')
 
-    c1 = root.children[c].children[1].children[1]
+    c1 = root.children[c].children[2]
     check(c1.data == 'transition')
     check(len(c1.children) == 4)
     check(c1.children[0] == 'ON')
@@ -229,7 +231,7 @@ def check_AST(root):
     check(len(c1.children[3].children) == 1)
     check(c1.children[3].children[0] == 'off')
 
-    c2 = root.children[c].children[1].children[2]
+    c2 = root.children[c].children[3]
     check(c2.data == 'transition')
     check(len(c2.children) == 4)
     check(c2.children[0] == 'OFF')
@@ -274,8 +276,10 @@ def main():
     f = open('grammar.plantuml')
     ast = parser.parse(f.read())
     print("AST:", ast.pretty())
-    check(len(ast.children) == 1)
-    check_AST(ast.children[0])
+    # The 'start' rule directly contains all top-level children (no intermediate
+    # state_diagram wrapper since grammar refactoring removed that layer).
+    check(ast.data == 'start')
+    check_AST(ast)
 
 if __name__ == '__main__':
     main()

@@ -1,17 +1,24 @@
 # PlantUML Statecharts (State Machine) Translator
 
 A Python3 tool parsing [PlantUML statecharts](https://plantuml.com/fr/state-diagram)
-scripts and generating C++11 code with its unit tests.
+scripts and generating C++ code with its unit tests.
 
-This [repository](https://github.com/Lecrapouille/Statecharts) contains:
+The original C++11 version is hosted in [Lecrapouille/Statecharts](https://github.com/Lecrapouille/Statecharts).
+This modded version is hosted in [type-one/PlantUMLStatecharts_VariantFSM](https://github.com/type-one/PlantUMLStatecharts_VariantFSM) and supports both C++11 and C++20 `std::variant` FSM generation.
+
+This repository contains:
 - A single C++11 header file containing the base code for defining a state
   machine. You can use it to define manually your own state machines. The code
   is [here](include/StateMachine.hpp).
+- A single C++20 header file containing helpers for `std::variant` /
+  `std::visit` generated state machines. The code is
+  [here](include/StateMachineVariant.hpp).
 - A Python3 script reading [PlantUML
   statecharts](https://plantuml.com/fr/state-diagram) and generating Statecharts
-  (aka finite state machines or FSM) in C++11 code as a child class of the base
-  state machine defined in the header file. The code is
-  [here](translator/statecharts.py).
+  (aka finite state machines or FSM) in either:
+  - C++11 class-based code inheriting from the base state machine runtime.
+  - C++20 `std::variant` / `std::visit` code in a self-contained generated class.
+  The code is [here](translator/statecharts.py).
 - Several [examples](examples) of PlantUML statecharts are given.
 
 The Python script offers you:
@@ -74,7 +81,16 @@ in the last section of this document.
     generating the C++ code (shall be ideally a MultiDiGraph).
 - [PlantUML](https://plantuml.com) called by the Makefile to generate PNG pictures
   of examples but it is not used by our Python3 script.
+- C++ compiler:
+  - For `cpp` / `hpp` generation: a C++14 (or newer) compiler.
+  - For `cpp20` / `hpp20` generation: a C++20 compiler.
 
+On Debian/Ubuntu Linux (system-wide packages):
+```
+sudo apt install python3-lark python3-networkx
+```
+
+Or using pip (any platform / virtual environment):
 ```
 python3 -m pip install networkx lark
 ```
@@ -82,16 +98,21 @@ python3 -m pip install networkx lark
 ## Command line
 
 ```
-./statecharts.py <plantuml statechart file> <langage> [name]
+./statecharts.py <plantuml statechart file> <langage> [name] [-o output_dir]
 ```
 
 Where:
 - `plantuml statechart file` is the path of the [PlantUML
    statecharts](https://plantuml.com/fr/state-diagram) file as input.  This repo
    contains [examples](examples/input).
-- `langage` is either `"cpp"` to force create a C++ source file or `"hpp"` to
-  force create a C++ header file.
+- `langage` is one of:
+  - `"cpp"` to generate C++11 class-based source file.
+  - `"hpp"` to generate C++11 class-based header file.
+  - `"cpp20"` to generate C++20 `std::variant` / `std::visit` source file.
+  - `"hpp20"` to generate C++20 `std::variant` / `std::visit` header file.
 - `name` is optional and allows giving prefix to the C++ class name and file.
+- `-o output_dir` is optional and redirects all generated files (`.cpp`/`.hpp`,
+  test files, interpreted `.plantuml`) to the given folder.
 
 Example:
 ```
@@ -99,6 +120,37 @@ Example:
 ```
 
 Will create a `FooController.cpp` file with a class name `FooController`.
+
+For C++20 generation:
+```
+./statecharts.py foo.plantuml hpp20 controller
+```
+
+Will create a `FooController.hpp` file using `std::variant` and `std::visit`.
+
+Generate into a specific output directory:
+```
+./statecharts.py foo.plantuml hpp20 controller -o ../build/generated
+```
+
+Will create generated files in `../build/generated`.
+
+Typical C++20 compilation command:
+```
+g++ --std=c++20 -Wall -Wextra -Iinclude -I. -o FooApp main.cpp
+```
+
+Where `main.cpp` includes your generated header:
+```
+#include "FooController.hpp"
+```
+
+Typical C++20 unit-test compilation command (generated `FooControllerTests.cpp`):
+```
+g++ --std=c++20 -Wall -Wextra -Iinclude -I. \
+  FooControllerTests.cpp `pkg-config --cflags --libs gtest gmock` \
+  -o FooControllerTests
+```
 
 ## Compile Examples
 
@@ -321,4 +373,3 @@ Our implementation is the following:
 - [UML Behavioral Diagrams: State Transition Diagram](https://youtu.be/OsmWASXE2IM) and
   [State Transition Diagram](https://youtu.be/PF9QcYWIsVE) YouTube videos made by the
   Georgia Tech Software Development Process.
-
