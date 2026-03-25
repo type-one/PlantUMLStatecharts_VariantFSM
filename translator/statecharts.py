@@ -46,6 +46,16 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 ###############################################################################
+### Convert CamelCase / camelCase to snake_case.
+### Examples: SimpleFSM -> simple_fsm, onGuarding -> on_guarding
+###############################################################################
+def camel_to_snake(name):
+    import re
+    s1 = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', name)
+    s2 = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s1)
+    return s2.lower()
+
+###############################################################################
 ### Structure holding information after having parsed a PlantUML event.
 ### Example of PlantUML events:
 ###    getQuarter
@@ -98,13 +108,14 @@ class Event(object):
     ### Generate the definition of the C++ method. For example returns:
     ###   void fooBar(X const& x, Y const& y)
     ###########################################################################
-    def header(self):
+    def header(self, name=None):
+        n = name if name is not None else self.name
         params = ''
         for p in self.params:
             if params != '':
                 params += ', '
             params += p.upper() + ' const& ' + p + '_'
-        return 'void ' + self.name + '(' + params + ')'
+        return 'void ' + n + '(' + params + ')'
 
     ###########################################################################
     ### Generate the call to the C++ method.
@@ -114,14 +125,15 @@ class Event(object):
     ### Or:
     ###   fooBar(x, y)
     ###########################################################################
-    def caller(self, var=''):
+    def caller(self, var='', name=None):
+        n = name if name is not None else self.name
         s = '' if var == '' else var + '.'
         params = ''
         for p in self.params:
             if params != '':
                 params += ', '
             params += s + p
-        return self.name + '(' + params + ')'
+        return n + '(' + params + ')'
 
     def __hash__(self):
         return hash(self.name)
@@ -498,6 +510,14 @@ class Parser(object):
         self.machines = dict() # type: StateMachine()
         # Output directory for generated artifacts.
         self.output_dir = '.'
+        # Use snake_case naming convention if True, else CamelCase/camelCase.
+        self.snake_case = False
+        # Optional C++ namespace wrapping the generated class.
+        self.namespace = ''
+        # Code-generation mode: 'inline' (default) | 'decl' | 'impl'.
+        self.gen_mode = 'inline'
+        # Indentation base offset (-1 in 'impl' mode for out-of-class definitions).
+        self.indent_base = 0
 
     ###########################################################################
     ### Is the generated file should be a C++ source file or header file ?
@@ -569,7 +589,47 @@ class Parser(object):
     ### param[in] count the depth of indentation.
     ###########################################################################
     def indent(self, depth):
-        self.fd.write(' ' * 4 * depth)
+        self.fd.write(' ' * 4 * max(0, depth + self.indent_base))
+
+    ###########################################################################
+    ### Format identifier according to naming convention (snake_case or CamelCase).
+    ###########################################################################
+    def fmt_name(self, name):
+        return camel_to_snake(name) if self.snake_case else name
+
+    ###########################################################################
+    ### Return mock class name based on naming convention.
+    ###########################################################################
+    def mock_class_name(self):
+        pfx = 'mock_' if self.snake_case else 'Mock'
+        return pfx + self.current.class_name
+
+    ###########################################################################
+    ### Return GTest suite name for current state machine.
+    ###########################################################################
+    def test_suite_name(self):
+        sfx = '_tests' if self.snake_case else 'Tests'
+        return self.current.class_name + sfx
+
+    ###########################################################################
+    ### Return test filename suffix for current naming convention.
+    ###########################################################################
+    def tests_file_suffix(self):
+        return '_tests.cpp' if self.snake_case else 'Tests.cpp'
+
+    def generate_namespace_begin(self):
+        if self.namespace == '':
+            return
+        for ns in self.namespace.split('::'):
+            self.fd.write('namespace ' + ns + ' {\n')
+        self.fd.write('\n')
+
+    def generate_namespace_end(self):
+        if self.namespace == '':
+            return
+        self.fd.write('\n')
+        for ns in reversed(self.namespace.split('::')):
+            self.fd.write('} // namespace ' + ns + '\n')
 
     ###########################################################################
     ### Generate #include "foo.h" or #include <foo.h>
@@ -653,10 +713,10 @@ class Parser(object):
     ###########################################################################
     def state_name(self, state):
         if state == '[*]':
-            return 'CONSTRUCTOR'
+            return 'constructor' if self.snake_case else 'CONSTRUCTOR'
         if state == '*':
-            return 'DESTRUCTOR'
-        return state
+            return 'destructor' if self.snake_case else 'DESTRUCTOR'
+        return state.lower() if self.snake_case else state
 
     ###########################################################################
     ### Return the C++ enum for the given state.
@@ -673,7 +733,7 @@ class Parser(object):
     ###########################################################################
     def guard_function(self, source, destination, class_name=False):
         s = self.current.class_name + '::' if class_name else ''
-        return s + 'onGuarding_' + self.state_name(source) + '_' + self.state_name(destination)
+        return s + self.fmt_name('onGuarding') + '_' + self.state_name(source) + '_' + self.state_name(destination)
 
     ###########################################################################
     ### Return the C++ method for transition actions.
@@ -683,7 +743,7 @@ class Parser(object):
     ###########################################################################
     def transition_function(self, source, destination, class_name=False):
         s = self.current.class_name + '::' if class_name else ''
-        return s + 'onTransitioning_' + self.state_name(source) + '_' + self.state_name(destination)
+        return s + self.fmt_name('onTransitioning') + '_' + self.state_name(source) + '_' + self.state_name(destination)
 
     ###########################################################################
     ### Return the C++ method for entering state actions.
@@ -692,7 +752,7 @@ class Parser(object):
     ###########################################################################
     def state_entering_function(self, state, class_name=True):
         s = self.current.class_name + '::' if class_name else ''
-        return s + 'onEntering_' + self.state_name(state)
+        return s + self.fmt_name('onEntering') + '_' + self.state_name(state)
 
     ###########################################################################
     ### Return the C++ method for leaving state actions.
@@ -701,7 +761,7 @@ class Parser(object):
     ###########################################################################
     def state_leaving_function(self, state, class_name=True):
         s = self.current.class_name + '::' if class_name else ''
-        return s + 'onLeaving_' + self.state_name(state)
+        return s + self.fmt_name('onLeaving') + '_' + self.state_name(state)
 
     ###########################################################################
     ### Return the C++ method for internal state transition.
@@ -710,7 +770,7 @@ class Parser(object):
     ###########################################################################
     def state_internal_function(self, state, class_name=True):
         s = self.current.class_name + '::' if class_name else ''
-        return s + 'onInternal_' + self.state_name(state)
+        return s + self.fmt_name('onInternal') + '_' + self.state_name(state)
 
     ###########################################################################
     ### Return the C++ method for activity state.
@@ -719,7 +779,7 @@ class Parser(object):
     ###########################################################################
     def state_activity_function(self, state, class_name=True):
         s = self.current.class_name + '::' if class_name else ''
-        return s + 'onActivity_' + self.state_name(state)
+        return s + self.fmt_name('onActivity') + '_' + self.state_name(state)
 
     ###########################################################################
     ### Return the C++ variable memeber of the nested state machine.
@@ -895,7 +955,7 @@ class Parser(object):
             if event.name == '':
                 continue
             self.generate_method_comment('External event.')
-            self.indent(1), self.fd.write(event.header() + '\n')
+            self.indent(1), self.fd.write(event.header(self.fmt_name(event.name)) + '\n')
             self.indent(1), self.fd.write('{\n')
             # Display data event
             self.indent(2), self.fd.write('LOGD("[' + self.current.class_name.upper() + '][EVENT %s]')
@@ -1027,7 +1087,10 @@ class Parser(object):
         self.fd.write('#include <gmock/gmock.h>\n')
         self.fd.write('#include <gtest/gtest.h>\n')
         self.fd.write('#include <cstring>\n\n')
-        self.fd.write('using namespace ::testing;\n\n')
+        self.fd.write('using namespace ::testing;\n')
+        if self.namespace != '':
+            self.fd.write('using namespace ::' + self.namespace + ';\n')
+        self.fd.write('\n')
 
     ###########################################################################
     ### Generate the footer part of the unit test file.
@@ -1040,7 +1103,7 @@ class Parser(object):
     ###########################################################################
     def generate_unit_tests_mocked_class(self):
         self.generate_function_comment('Mocked state machine')
-        self.fd.write('class Mock' + self.current.class_name + ' : public ' + self.current.class_name)
+        self.fd.write('class ' + self.mock_class_name() + ' : public ' + self.current.class_name)
         self.fd.write('\n{\npublic:\n')
         transitions = list(self.current.graph.edges)
         for origin, destination in transitions:
@@ -1185,7 +1248,7 @@ class Parser(object):
     ###########################################################################
     def generate_unit_tests_check_initial_state(self):
         self.generate_line_separator(0, ' ', 80, '-')
-        self.fd.write('TEST(' + self.current.class_name + 'Tests, TestInitialSate)\n{\n')
+        self.fd.write('TEST(' + self.test_suite_name() + ', TestInitialSate)\n{\n')
         self.indent(1), self.fd.write('LOGD("===============================================\\n");\n')
         self.indent(1), self.fd.write('LOGD("Check initial state after constructor or reset.\\n");\n')
         self.indent(1), self.fd.write('LOGD("===============================================\\n");\n')
@@ -1202,7 +1265,7 @@ class Parser(object):
         cycles = self.current.graph_cycles()
         for cycle in cycles:
             self.generate_line_separator(0, ' ', 80, '-')
-            self.fd.write('TEST(' + self.current.class_name + 'Tests, TestCycle' + str(count) + ')\n{\n')
+            self.fd.write('TEST(' + self.test_suite_name() + ', TestCycle' + str(count) + ')\n{\n')
             count += 1
             # Print the cycle
             self.indent(1), self.fd.write('LOGD("===========================================\\n");\n')
@@ -1213,7 +1276,7 @@ class Parser(object):
             self.indent(1), self.fd.write('LOGD("===========================================\\n");\n')
 
             # Reset the state machine and print the guard supposed to reach this state
-            self.indent(1), self.fd.write('Mock' + self.current.class_name + ' ' + 'fsm;\n')
+            self.indent(1), self.fd.write(self.mock_class_name() + ' ' + 'fsm;\n')
             self.generate_mocked_guards(['[*]'] + cycle)
             self.fd.write('\n'), self.indent(1), self.fd.write('fsm.enter();\n')
             guard = self.current.graph[self.current.initial_state][cycle[0]]['data'].guard
@@ -1271,7 +1334,7 @@ class Parser(object):
         pathes = self.current.graph_all_paths_to_sinks()
         for path in pathes:
             self.generate_line_separator(0, ' ', 80, '-')
-            self.fd.write('TEST(' + self.current.class_name + 'Tests, TestPath' + str(count) + ')\n{\n')
+            self.fd.write('TEST(' + self.test_suite_name() + ', TestPath' + str(count) + ')\n{\n')
             count += 1
             # Print the path
             self.indent(1), self.fd.write('LOGD("===========================================\\n");\n')
@@ -1282,7 +1345,7 @@ class Parser(object):
             self.indent(1), self.fd.write('LOGD("===========================================\\n");\n')
 
             # Reset the state machine and print the guard supposed to reach this state
-            self.indent(1), self.fd.write('Mock' + self.current.class_name + ' ' + 'fsm;\n')
+            self.indent(1), self.fd.write(self.mock_class_name() + ' ' + 'fsm;\n')
             self.generate_mocked_guards(path)
             self.fd.write('\n'), self.indent(1), self.fd.write('fsm.enter();\n')
 
@@ -1328,7 +1391,10 @@ class Parser(object):
         self.fd = open(filename, 'w')
         self.fd.write('#include <gmock/gmock.h>\n')
         self.fd.write('#include <gtest/gtest.h>\n')
-        self.fd.write('using namespace ::testing;\n\n')
+        self.fd.write('using namespace ::testing;\n')
+        if self.namespace != '':
+            self.fd.write('using namespace ::' + self.namespace + ';\n')
+        self.fd.write('\n')
         self.generate_unit_tests_main_function(filename, files)
         self.fd.close()
 
@@ -1341,7 +1407,7 @@ class Parser(object):
     ### FIXME Cycles does not make all test case possible
     ###########################################################################
     def generate_unit_tests(self, cxxfile, files, separated):
-        filename = self.current.class_name + 'Tests.cpp'
+        filename = self.current.class_name + self.tests_file_suffix()
         self.fd = open(os.path.join(os.path.dirname(cxxfile), filename), 'w')
         self.generate_unit_tests_header()
         self.generate_unit_tests_mocked_class()
@@ -1359,9 +1425,11 @@ class Parser(object):
         hpp = self.is_hpp_file(cxxfile)
         self.fd = open(cxxfile, 'w')
         self.generate_header(hpp)
+        self.generate_namespace_begin()
         self.generate_state_enums()
         self.generate_stringify_function()
         self.generate_state_machine_class()
+        self.generate_namespace_end()
         self.generate_footer(hpp)
         self.fd.close()
 
@@ -1374,7 +1442,7 @@ class Parser(object):
     def generate_cxx_code(self, cxxfile, separated):
         files = []
         for self.current in self.machines.values():
-            f = self.current.class_name + 'Tests.cpp'
+            f = self.current.class_name + self.tests_file_suffix()
             files.append(f)
             filename = self.current.class_name + '.' +  cxxfile
             target = os.path.join(self.output_dir, filename)
@@ -1552,7 +1620,7 @@ class Parser(object):
             if event.name == '':
                 continue
             self.generate_method_comment('External event.')
-            self.indent(1), self.fd.write(event.header() + '\n')
+            self.indent(1), self.fd.write(event.header(self.fmt_name(event.name)) + '\n')
             self.indent(1), self.fd.write('{\n')
             for arg in event.params:
                 self.indent(2), self.fd.write(arg + ' = ' + arg + '_;\n')
@@ -1680,8 +1748,10 @@ class Parser(object):
         hpp = self.is_hpp_file(cxxfile)
         self.fd = open(cxxfile, 'w')
         self.generate_variant_header(hpp)
+        self.generate_namespace_begin()
         self.generate_variant_state_structs()
         self.generate_variant_state_machine_class()
+        self.generate_namespace_end()
         self.generate_footer(hpp)
         self.fd.close()
 
@@ -1696,11 +1766,14 @@ class Parser(object):
         self.fd.write('#include <gmock/gmock.h>\n')
         self.fd.write('#include <gtest/gtest.h>\n')
         self.fd.write('#include <cstring>\n\n')
-        self.fd.write('using namespace ::testing;\n\n')
+        self.fd.write('using namespace ::testing;\n')
+        if self.namespace != '':
+            self.fd.write('using namespace ::' + self.namespace + ';\n')
+        self.fd.write('\n')
 
     def generate_variant_unit_tests_mocked_class(self):
         self.generate_function_comment('Mocked state machine')
-        self.fd.write('class Mock' + self.current.class_name
+        self.fd.write('class ' + self.mock_class_name()
                       + ' : public ' + self.current.class_name)
         self.fd.write('\n{\npublic:\n')
         for origin, destination in list(self.current.graph.edges):
@@ -1734,7 +1807,7 @@ class Parser(object):
 
     def generate_variant_unit_tests_check_initial_state(self):
         self.generate_line_separator(0, ' ', 80, '-')
-        self.fd.write('TEST(' + self.current.class_name + 'Tests, TestInitialState)\n{\n')
+        self.fd.write('TEST(' + self.test_suite_name() + ', TestInitialState)\n{\n')
         self.indent(1)
         self.fd.write(self.current.class_name + ' fsm; // Not mocked! Add constructor args if needed.\n')
         self.indent(1), self.fd.write('fsm.enter();\n\n')
@@ -1755,11 +1828,11 @@ class Parser(object):
         count = 0
         for cycle in self.current.graph_cycles():
             self.generate_line_separator(0, ' ', 80, '-')
-            self.fd.write('TEST(' + self.current.class_name + 'Tests, TestCycle'
+            self.fd.write('TEST(' + self.test_suite_name() + ', TestCycle'
                           + str(count) + ')\n{\n')
             count += 1
             self.indent(1)
-            self.fd.write('Mock' + self.current.class_name + ' fsm;\n')
+            self.fd.write(self.mock_class_name() + ' fsm;\n')
             self.generate_mocked_guards(['[*]'] + cycle)
             self.fd.write('\n'), self.indent(1), self.fd.write('fsm.enter();\n')
             self.indent(1)
@@ -1789,10 +1862,10 @@ class Parser(object):
         count = 0
         for path in self.current.graph_all_paths_to_sinks():
             self.generate_line_separator(0, ' ', 80, '-')
-            self.fd.write('TEST(' + self.current.class_name + 'Tests, TestPath'
+            self.fd.write('TEST(' + self.test_suite_name() + ', TestPath'
                           + str(count) + ')\n{\n')
             count += 1
-            self.indent(1), self.fd.write('Mock' + self.current.class_name + ' fsm;\n')
+            self.indent(1), self.fd.write(self.mock_class_name() + ' fsm;\n')
             self.generate_mocked_guards(path)
             self.fd.write('\n'), self.indent(1), self.fd.write('fsm.enter();\n')
             for i in range(len(path) - 1):
@@ -1813,7 +1886,7 @@ class Parser(object):
             self.fd.write('}\n\n')
 
     def generate_variant_unit_tests(self, cxxfile, files, separated):
-        filename = self.current.class_name + 'Tests.cpp'
+        filename = self.current.class_name + self.tests_file_suffix()
         self.fd = open(os.path.join(os.path.dirname(cxxfile), filename), 'w')
         self.generate_variant_unit_tests_header()
         self.generate_variant_unit_tests_mocked_class()
@@ -1833,12 +1906,25 @@ class Parser(object):
             return
         files = []
         for self.current in self.machines.values():
-            f = self.current.class_name + 'Tests.cpp'
+            f = self.current.class_name + self.tests_file_suffix()
             files.append(f)
-            filename = self.current.class_name + '.' + cxxfile
-            target = os.path.join(self.output_dir, filename)
-            self.generate_variant_state_machine(target)
-            self.generate_variant_unit_tests(target, files, separated)
+            if cxxfile == 'cpp':
+                hpp_name = self.current.class_name + '.hpp'
+                hpp_target = os.path.join(self.output_dir, hpp_name)
+                self.generate_variant_state_machine(hpp_target)
+
+                cpp_name = self.current.class_name + '.cpp'
+                cpp_target = os.path.join(self.output_dir, cpp_name)
+                with open(cpp_target, 'w') as fd:
+                    fd.write('// Split C++20 mode: implementation unit includes generated header.\n')
+                    fd.write('#include "' + hpp_name + '"\n')
+
+                self.generate_variant_unit_tests(hpp_target, files, separated)
+            else:
+                filename = self.current.class_name + '.' + cxxfile
+                target = os.path.join(self.output_dir, filename)
+                self.generate_variant_state_machine(target)
+                self.generate_variant_unit_tests(target, files, separated)
         if separated:
             mainfile = self.master.class_name + 'MainTests.cpp'
             mainfile = os.path.join(self.output_dir, mainfile)
@@ -1937,6 +2023,7 @@ class Parser(object):
             if self.tokens[i] == '#event':
                 N = int(self.tokens[i+1])
                 tr.event.parse(self.tokens[i+2:i+2+N])
+                tr.event.name = self.fmt_name(tr.event.name)
                 self.check_valid_method_name(tr.event.name)
                 # Make the main state machine broadcast external events to nested state machine
                 if self.current.parent != None:
@@ -2118,8 +2205,10 @@ class Parser(object):
             self.current = StateMachine()
             # Set the new name
             self.current.name = str(inst.children[0])
-            self.current.class_name = 'Nested' + self.current.name
-            self.current.enum_name = self.current.class_name + 'States'
+            nested_prefix = 'Nested' if not self.snake_case else 'nested'
+            self.current.class_name = self.fmt_name(nested_prefix + self.current.name)
+            enum_sfx = 'States' if not self.snake_case else 'states'
+            self.current.enum_name = self.fmt_name(self.current.class_name + enum_sfx)
             self.machines[self.current.name] = self.current
             # Create links parent and sibling
             self.current.parent = backup_fsm
@@ -2144,7 +2233,7 @@ class Parser(object):
     ### param[in] cpp_or_hpp: generated a C++ source file ('cpp') or a C++ header file ('hpp').
     ### param[in] postfix: postfix name for the state machine name.
     ###########################################################################
-    def translate(self, uml_file, cpp_or_hpp, postfix, output_dir='.'):
+    def translate(self, uml_file, cpp_or_hpp, postfix, output_dir='.', snake_case=False, namespace='', gen_mode='inline'):
         # Make the parser understand the plantUML grammar
         if self.parser == None:
             grammar_file = os.path.join(os.getcwd(), 'statecharts.ebnf')
@@ -2161,6 +2250,9 @@ class Parser(object):
             self.fatal('File path ' + uml_file + ' does not exist!')
         self.uml_file = uml_file
         self.output_dir = output_dir
+        self.snake_case = snake_case
+        self.namespace = namespace
+        self.gen_mode = gen_mode
         os.makedirs(self.output_dir, exist_ok=True)
         self.fd = open(self.uml_file, 'r')
         self.ast = self.parser.parse(self.fd.read())
@@ -2168,8 +2260,9 @@ class Parser(object):
         # Create the main state machine
         self.current = StateMachine()
         self.current.name = Path(uml_file).stem
-        self.current.class_name = self.current.name + postfix
-        self.current.enum_name = self.current.class_name + 'States'
+        self.current.class_name = self.fmt_name(self.current.name + postfix)
+        enum_sfx = 'States' if not self.snake_case else 'states'
+        self.current.enum_name = self.fmt_name(self.current.class_name + enum_sfx)
         self.master = self.current
         self.machines[self.current.name] = self.current
         # Traverse the AST to create the graph structure of the state machine
@@ -2223,6 +2316,10 @@ def main():
 
     postfix = ''
     output_dir = '.'
+    snake_case = False
+    namespace = ''
+    gen_mode = 'inline'
+    
     i = 3
     while i < argc:
         arg = sys.argv[i]
@@ -2231,6 +2328,17 @@ def main():
                 print('Missing value for ' + arg)
                 usage()
             output_dir = sys.argv[i + 1]
+            i += 2
+            continue
+        elif arg in ['-s', '--snake']:
+            snake_case = True
+            i += 1
+            continue
+        elif arg in ['-n', '--namespace']:
+            if i + 1 >= argc:
+                print('Missing value for ' + arg)
+                usage()
+            namespace = sys.argv[i + 1]
             i += 2
             continue
 
@@ -2243,7 +2351,7 @@ def main():
         usage()
 
     p = Parser()
-    p.translate(sys.argv[1], sys.argv[2], postfix, output_dir)
+    p.translate(sys.argv[1], sys.argv[2], postfix, output_dir, snake_case, namespace, gen_mode)
 
 if __name__ == '__main__':
     main()

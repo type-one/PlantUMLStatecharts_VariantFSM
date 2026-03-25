@@ -98,7 +98,7 @@ python3 -m pip install networkx lark
 ## Command line
 
 ```
-./statecharts.py <plantuml statechart file> <langage> [name] [-o output_dir]
+./statecharts.py <plantuml statechart file> <langage> [name] [-o output_dir] [-s] [-n namespace]
 ```
 
 Where:
@@ -108,11 +108,17 @@ Where:
 - `langage` is one of:
   - `"cpp"` to generate C++11 class-based source file.
   - `"hpp"` to generate C++11 class-based header file.
-  - `"cpp20"` to generate C++20 `std::variant` / `std::visit` source file.
-  - `"hpp20"` to generate C++20 `std::variant` / `std::visit` header file.
-- `name` is optional and allows giving prefix to the C++ class name and file.
+  - `"hpp20"` to generate a self-contained C++20 `std::variant` / `std::visit` header file (all-in-one).
+  - `"cpp20"` to generate a C++20 `std::variant` / `std::visit` header **and** a matching `.cpp` implementation stub (split mode).
+- `name` is optional and allows giving a postfix to the C++ class name and file.
 - `-o output_dir` is optional and redirects all generated files (`.cpp`/`.hpp`,
   test files, interpreted `.plantuml`) to the given folder.
+- `-s` / `--snake` is optional and switches all generated C++ identifiers to
+  `snake_case` (class names, method names, enum values, file names, mock/test
+  class names).  Default is `CamelCase`.
+- `-n namespace` / `--namespace namespace` is optional and wraps the generated
+  class in the given C++ namespace (e.g. `-n myapp` or `-n com::acme`).  The
+  generated unit-test file adds a matching `using namespace ::myapp;` directive.
 
 Example:
 ```
@@ -121,17 +127,32 @@ Example:
 
 Will create a `FooController.cpp` file with a class name `FooController`.
 
-For C++20 generation:
+Generate a self-contained C++20 header:
 ```
 ./statecharts.py foo.plantuml hpp20 controller
 ```
 
 Will create a `FooController.hpp` file using `std::variant` and `std::visit`.
 
+Generate split C++20 header + implementation stub:
+```
+./statecharts.py foo.plantuml cpp20 controller
+```
+
+Creates `FooController.hpp` (full definition) and `FooController.cpp` (stub).
+
 Generate into a specific output directory:
 ```
 ./statecharts.py foo.plantuml hpp20 controller -o ../build/generated
 ```
+
+Generate with `snake_case` naming convention and a C++ namespace:
+```
+./statecharts.py foo.plantuml hpp20 -s -n myapp
+```
+
+Creates `foo.hpp` with `class foo` inside `namespace myapp { ... }`, and
+`foo_tests.cpp` with `class mock_foo` and `TEST(foo_tests, ...)` entries.
 
 Will create generated files in `../build/generated`.
 
