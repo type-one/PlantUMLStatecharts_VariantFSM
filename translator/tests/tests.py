@@ -14,36 +14,36 @@ def check_AST(root):
     check(len(root.children) == 21)
     c = 0
 
-    # ' ceci est un commentaire
+    # ' this is a comment
     check(root.children[c].data == 'comment')
     c += 1
 
-    # '[header] ceci est un header 1
+    # '[header] this is a header 1
     check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[header]')
-    check(root.children[c].children[1].strip() == 'ceci est un header 1')
+    check(root.children[c].children[1].strip() == 'this is a header 1')
     c += 1
 
-    # '[header] ceci est un header 2
+    # '[header] this is a header 2
     check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[header]')
-    check(root.children[c].children[1].strip() == 'ceci est un header 2')
+    check(root.children[c].children[1].strip() == 'this is a header 2')
     c += 1
 
-    # '[footer] ceci est un footer 1
+    # '[footer] this is a footer 1
     check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[footer]')
-    check(root.children[c].children[1].strip() == 'ceci est un footer 1')
+    check(root.children[c].children[1].strip() == 'this is a footer 1')
     c += 1
 
-    # '[footer] ceci est un footer 2
+    # '[footer] this is a footer 2
     check(root.children[c].data == 'cpp')
     check(len(root.children[c].children) == 2)
     check(root.children[c].children[0] == '[footer]')
-    check(root.children[c].children[1].strip() == 'ceci est un footer 2')
+    check(root.children[c].children[1].strip() == 'this is a footer 2')
     c += 1
 
     # '[init] a = 0;

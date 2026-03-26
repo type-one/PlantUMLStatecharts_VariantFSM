@@ -1,10 +1,10 @@
 @startuml
 
-' ceci est un commentaire
-'[header] ceci est un header 1
-'[header] ceci est un header 2
-'[footer] ceci est un footer 1
-'[footer] ceci est un footer 2
+' this is a comment
+'[header] this is a header 1
+'[header] this is a header 2
+'[footer] this is a footer 1
+'[footer] this is a footer 2
 '[init] a = 0;
 '[init] b = "ff";
 '[code] int foo();

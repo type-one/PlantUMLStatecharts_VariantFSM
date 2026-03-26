@@ -375,10 +375,10 @@ Our implementation is the following:
   YAKINDU Statechart Tools is a tool for specializing and developing state machines.
 - [Developing Reactive Systems Using Statecharts](http://msdl.cs.mcgill.ca/people/hv/teaching/MoSIS/lectures/StatechartsModellingAndSimulation.pdf)
   a well-made English course to statecharts.
-- [Modeliser les vues dynamiques d'un systeme](http://niedercorn.free.fr/iris/iris1/uml/uml09.pdf)
-  an introduction to UML statecharts in French.
-- [ML/SysML Diagramme d'etat Programmation Arduino](https://eduscol.education.fr/sti/ressources_pedagogiques/umlsysml-diagramme-detat-et-programmation-arduino#fichiers-liens)
-  a French course to statecharts with open source code source. The API is simple
+- [Modeling dynamic system views](http://niedercorn.free.fr/iris/iris1/uml/uml09.pdf)
+  a French-language introduction to UML statecharts.
+- [ML/SysML state diagram and Arduino programming](https://eduscol.education.fr/sti/ressources_pedagogiques/umlsysml-diagramme-detat-et-programmation-arduino#fichiers-liens)
+  a French-language statecharts course with open source code. The API is simple
   to read but is the only one I saw offering advanced statechart features such
   as activities and history.
 - [State Machine Design in C++](https://www.codeproject.com/Articles/1087619/State-Machine-Design-in-Cplusplus-2)
