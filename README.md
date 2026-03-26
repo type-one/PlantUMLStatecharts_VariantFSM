@@ -50,6 +50,8 @@ in the last section of this document.
 - The tool only parses simple finite state machines. Hierarchical, orthogonal,
   concurrent, composite, fork/join, pseudo-states, and history are not
   supported.
+  The unsupported diagrams kept as references are listed in
+  [examples/README.md](examples/README.md).
 - For FSM, the `do / activity` and `after(X ms)` are not yet managed.
 - Does not manage multi-edges (several transitions from the same origin and
   destination state). As consequence, you cannot add several `on event` in the

@@ -109,3 +109,12 @@ system will be frozen and the tool is detecting them.
 **WARNING: This case is not managed by this tool**
 
 ![alt triggers](../doc/Triggers.png)
+
+### Unsupported examples kept in repository
+
+The following diagrams are intentionally kept as unsupported examples for future
+work and are not parsed by the current generator:
+
+- `SimpleComposite.plantuml`
+- `SimpleOrthogonal.plantuml`
+- `Pompe.plantuml`
