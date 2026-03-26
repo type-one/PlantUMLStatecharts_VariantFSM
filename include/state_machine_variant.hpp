@@ -22,27 +22,29 @@
 // SOFTWARE.
 // ############################################################################
 
+#pragma once
+
 #ifndef STATE_MACHINE_VARIANT_HPP
-#  define STATE_MACHINE_VARIANT_HPP
+#define STATE_MACHINE_VARIANT_HPP
 
 // C++20 std::variant / std::visit runtime support for generated FSMs.
 // No base class is needed: the generated class is self-contained.
 // This header supplies only the helpers shared by all generated FSMs.
 
-#  include <variant>
-#  include <optional>
-#  include <cstdio>
-#  include <cstring>
+#include <variant>
+#include <optional>
+#include <cstdio>
+#include <cstring>
 
 //-----------------------------------------------------------------------------
 //! \brief Verbosity activated when compiled with -DFSM_DEBUG.
 //-----------------------------------------------------------------------------
-#  if defined(FSM_DEBUG)
-#    define LOGD printf
-#  else
-#    define LOGD(...)
-#  endif
-#  define LOGE printf
+#if defined(FSM_DEBUG)
+#define FSM_LOG printf
+#else
+#define FSM_LOG(...)
+#endif
+#define LOGE printf
 
 namespace fsm {
 

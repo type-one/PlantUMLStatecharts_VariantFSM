@@ -9,10 +9,10 @@ This modded version is hosted in [type-one/PlantUMLStatecharts_VariantFSM](https
 This repository contains:
 - A single C++11 header file containing the base code for defining a state
   machine. You can use it to define manually your own state machines. The code
-  is [here](include/StateMachine.hpp).
+  is [here](include/state_machine.hpp).
 - A single C++20 header file containing helpers for `std::variant` /
   `std::visit` generated state machines. The code is
-  [here](include/StateMachineVariant.hpp).
+  [here](include/state_machine_variant.hpp).
 - A Python3 script reading [PlantUML
   statecharts](https://plantuml.com/fr/state-diagram) and generating Statecharts
   (aka finite state machines or FSM) in either:
@@ -98,7 +98,7 @@ python3 -m pip install networkx lark
 ## Command line
 
 ```
-./statecharts.py <plantuml statechart file> <langage> [name] [-o output_dir] [-s] [-n namespace]
+./statecharts.py <plantuml statechart file> <langage> [name] [-o output_dir] [-s|--snake] [-c|--camel] [-n namespace]
 ```
 
 Where:
@@ -113,9 +113,10 @@ Where:
 - `name` is optional and allows giving a postfix to the C++ class name and file.
 - `-o output_dir` is optional and redirects all generated files (`.cpp`/`.hpp`,
   test files, interpreted `.plantuml`) to the given folder.
-- `-s` / `--snake` is optional and switches all generated C++ identifiers to
-  `snake_case` (class names, method names, enum values, file names, mock/test
-  class names).  Default is `CamelCase`.
+- `-s` / `--snake` enables `snake_case` naming for generated C++ identifiers
+  (class names, method names, enum values, file names, mock/test class names).
+  This is the default mode.
+- `-c` / `--camel` switches naming to `CamelCase`.
 - `-n namespace` / `--namespace namespace` is optional and wraps the generated
   class in the given C++ namespace (e.g. `-n myapp` or `-n com::acme`).  The
   generated unit-test file adds a matching `using namespace ::myapp;` directive.
@@ -125,21 +126,22 @@ Example:
 ./statecharts.py foo.plantuml cpp controller
 ```
 
-Will create a `FooController.cpp` file with a class name `FooController`.
+Will create a `foo_controller.cpp` file with a class name `foo_controller`
+(default `snake_case`).
 
 Generate a self-contained C++20 header:
 ```
 ./statecharts.py foo.plantuml hpp20 controller
 ```
 
-Will create a `FooController.hpp` file using `std::variant` and `std::visit`.
+Will create a `foo_controller.hpp` file using `std::variant` and `std::visit`.
 
 Generate split C++20 header + implementation stub:
 ```
 ./statecharts.py foo.plantuml cpp20 controller
 ```
 
-Creates `FooController.hpp` (full definition) and `FooController.cpp` (stub).
+Creates `foo_controller.hpp` (full definition) and `foo_controller.cpp` (stub).
 
 Generate into a specific output directory:
 ```

@@ -1,10 +1,12 @@
 // This file as been generated the June 16, 2022
 // This code generation is still experimental. Some border cases may not be correctly managed!
 
-#ifndef GUMBALLCONTROLLER_HPP
-#  define GUMBALLCONTROLLER_HPP
+#pragma once
 
-#  include "StateMachine.hpp"
+#ifndef GUMBALLCONTROLLER_HPP
+#define GUMBALLCONTROLLER_HPP
+
+#include "state_machine.hpp"
 
 //********************************************************************************
 //! \brief States of the state machine.
@@ -78,7 +80,7 @@ public: // Constructor and external events
     //----------------------------------------------------------------------------
     void insertQuarter()
     {
-        LOGD("[EVENT %s]\n", __func__);
+        FSM_LOG("[EVENT %s]\n", __func__);
 
         static Transitions s_transitions =
         {
@@ -100,7 +102,7 @@ public: // Constructor and external events
     //----------------------------------------------------------------------------
     void ejectQuarter()
     {
-        LOGD("[EVENT %s]\n", __func__);
+        FSM_LOG("[EVENT %s]\n", __func__);
 
         static Transitions s_transitions =
         {
@@ -122,7 +124,7 @@ public: // Constructor and external events
     //----------------------------------------------------------------------------
     void turnCrank()
     {
-        LOGD("[EVENT %s]\n", __func__);
+        FSM_LOG("[EVENT %s]\n", __func__);
 
         static Transitions s_transitions =
         {
@@ -147,7 +149,7 @@ private: // Guards and reactions
     bool onGuardingTransitionCONSTRUCTOR_NOQUARTER()
     {
         const bool guard = (gumballs > 0);
-        LOGD("[GUARD [*] --> NOQUARTER: gumballs > 0] result: %s\n",
+        FSM_LOG("[GUARD [*] --> NOQUARTER: gumballs > 0] result: %s\n",
              (guard ? "true" : "false"));
         return guard;
     }
@@ -158,7 +160,7 @@ private: // Guards and reactions
     bool onGuardingTransitionCONSTRUCTOR_OUTOFGUMBALLS()
     {
         const bool guard = (gumballs == 0);
-        LOGD("[GUARD [*] --> OUTOFGUMBALLS: gumballs == 0] result: %s\n",
+        FSM_LOG("[GUARD [*] --> OUTOFGUMBALLS: gumballs == 0] result: %s\n",
              (guard ? "true" : "false"));
         return guard;
     }
@@ -168,9 +170,9 @@ private: // Guards and reactions
     //-----------------------------------------------------------------------------------
     void onTransitioningHASQUARTER_GUMBALLSOLD()
     {
-        LOGD("[TRANSITION HASQUARTER --> GUMBALLSOLD: --gumballs]\n");
+        FSM_LOG("[TRANSITION HASQUARTER --> GUMBALLSOLD: --gumballs]\n");
         --gumballs;
-        LOGD("Il me reste %d gumballs\n", gumballs);
+        FSM_LOG("Il me reste %d gumballs\n", gumballs);
     }
 
     //----------------------------------------------------------------------------
@@ -179,7 +181,7 @@ private: // Guards and reactions
     bool onGuardingTransitionGUMBALLSOLD_NOQUARTER()
     {
         const bool guard = (gumballs > 0);
-        LOGD("[GUARD GUMBALLSOLD --> NOQUARTER: gumballs > 0] result: %s\n",
+        FSM_LOG("[GUARD GUMBALLSOLD --> NOQUARTER: gumballs > 0] result: %s\n",
              (guard ? "true" : "false"));
         return guard;
     }
@@ -190,7 +192,7 @@ private: // Guards and reactions
     bool onGuardingTransitionGUMBALLSOLD_OUTOFGUMBALLS()
     {
         const bool guard = (gumballs == 0);
-        LOGD("[GUARD GUMBALLSOLD --> OUTOFGUMBALLS: gumballs == 0] result: %s\n",
+        FSM_LOG("[GUARD GUMBALLSOLD --> OUTOFGUMBALLS: gumballs == 0] result: %s\n",
              (guard ? "true" : "false"));
         return guard;
     }
@@ -200,9 +202,9 @@ private: // Guards and reactions
     //----------------------------------------------------------------------------
     void onEnteringStateCONSTRUCTOR()
     {
-        LOGD("[ENTERING STATE [*]]\n");
+        FSM_LOG("[ENTERING STATE [*]]\n");
         
-        LOGD("[STATE [*]] Internal transition\n");
+        FSM_LOG("[STATE [*]] Internal transition\n");
         if (onGuardingTransitionCONSTRUCTOR_NOQUARTER())
         {
             static StateMachine<GumballController, GumballControllerStates>::Transition tr =
@@ -230,9 +232,9 @@ private: // Guards and reactions
     //----------------------------------------------------------------------------
     void onEnteringStateGUMBALLSOLD()
     {
-        LOGD("[ENTERING STATE GUMBALLSOLD]\n");
+        FSM_LOG("[ENTERING STATE GUMBALLSOLD]\n");
         
-        LOGD("[STATE GUMBALLSOLD] Internal transition\n");
+        FSM_LOG("[STATE GUMBALLSOLD] Internal transition\n");
         if (onGuardingTransitionGUMBALLSOLD_NOQUARTER())
         {
             static StateMachine<GumballController, GumballControllerStates>::Transition tr =

@@ -36,7 +36,7 @@
             guard = self.current.class_name.upper() + '_HPP'
             self.fd.write('#ifndef ' + guard + '\n')
             self.fd.write('#  define ' + guard + '\n\n')
-        self.fd.write('#  include "StateMachineVariant.hpp"\n\n')
+        self.fd.write('#  include "state_machine_variant.hpp"\n\n')
         if self.current.extra_code.header != '':
             self.fd.write(self.current.extra_code.header + '\n')
 
@@ -170,7 +170,7 @@
                 self.fd.write('bool ' + self.guard_function(origin, destination) + '()\n')
                 self.indent(1), self.fd.write('{\n')
                 self.indent(2), self.fd.write('const bool guard = (' + tr.guard + ');\n')
-                self.indent(2), self.fd.write('LOGD("[' + self.current.class_name.upper())
+                self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper())
                 self.fd.write('][GUARD ' + origin + ' --> ' + destination + ': ')
                 self.fd.write(tr.guard + '] result: %s\\n",\n')
                 self.indent(3), self.fd.write('guard ? "true" : "false");\n')
@@ -182,7 +182,7 @@
                 self.indent(1)
                 self.fd.write('void ' + self.transition_function(origin, destination) + '()\n')
                 self.indent(1), self.fd.write('{\n')
-                self.indent(2), self.fd.write('LOGD("[' + self.current.class_name.upper())
+                self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper())
                 self.fd.write('][TRANSITION ' + origin + ' --> ' + destination)
                 if tr.action[:2] != '//':
                     self.fd.write(': ' + tr.action + ']\\n");\n')
@@ -202,7 +202,7 @@
                 self.indent(1)
                 self.fd.write('void ' + self.state_entering_function(node, False) + '()\n')
                 self.indent(1), self.fd.write('{\n')
-                self.indent(2), self.fd.write('LOGD("[' + self.current.class_name.upper())
+                self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper())
                 self.fd.write('][ENTERING ' + state.name + ']\\n");\n')
                 self.fd.write(state.entering)
                 self.indent(1), self.fd.write('}\n\n')
@@ -211,7 +211,7 @@
                 self.indent(1)
                 self.fd.write('void ' + self.state_leaving_function(node, False) + '()\n')
                 self.indent(1), self.fd.write('{\n')
-                self.indent(2), self.fd.write('LOGD("[' + self.current.class_name.upper())
+                self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper())
                 self.fd.write('][LEAVING ' + state.name + ']\\n");\n')
                 self.fd.write(state.leaving)
                 self.indent(1), self.fd.write('}\n\n')
@@ -235,7 +235,7 @@
             self.generate_method_comment('External event: ' + event.name + '.')
             self.indent(1), self.fd.write(event.header() + '\n')
             self.indent(1), self.fd.write('{\n')
-            self.indent(2), self.fd.write('LOGD("[' + self.current.class_name.upper())
+            self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper())
             self.fd.write('][EVENT %s]\\n", __func__);\n')
             for arg in event.params:
                 self.fd.write('\n'), self.indent(2)
@@ -432,9 +432,9 @@
     def generate_variant_unit_tests_check_initial_state(self):
         self.generate_line_separator(0, ' ', 80, '-')
         self.fd.write('TEST(' + self.current.class_name + 'Tests, TestInitialState)\n{\n')
-        self.indent(1), self.fd.write('LOGD("===============================================\\n");\n')
-        self.indent(1), self.fd.write('LOGD("Check initial state after construction.\\n");\n')
-        self.indent(1), self.fd.write('LOGD("===============================================\\n");\n')
+        self.indent(1), self.fd.write('FSM_LOG("===============================================\\n");\n')
+        self.indent(1), self.fd.write('FSM_LOG("Check initial state after construction.\\n");\n')
+        self.indent(1), self.fd.write('FSM_LOG("===============================================\\n");\n')
         self.generate_variant_unit_tests_assertions_initial_state()
         self.fd.write('}\n\n')
 
@@ -447,12 +447,12 @@
             self.generate_line_separator(0, ' ', 80, '-')
             self.fd.write('TEST(' + self.current.class_name + 'Tests, TestCycle' + str(count) + ')\n{\n')
             count += 1
-            self.indent(1), self.fd.write('LOGD("===========================================\\n");\n')
-            self.indent(1), self.fd.write('LOGD("Check cycle: [*]')
+            self.indent(1), self.fd.write('FSM_LOG("===========================================\\n");\n')
+            self.indent(1), self.fd.write('FSM_LOG("Check cycle: [*]')
             for c in cycle:
                 self.fd.write(' ' + c)
             self.fd.write('\\n");\n')
-            self.indent(1), self.fd.write('LOGD("===========================================\\n");\n')
+            self.indent(1), self.fd.write('FSM_LOG("===========================================\\n");\n')
             self.indent(1), self.fd.write(self.current.class_name + ' fsm')
             guard = self.current.graph[self.current.initial_state][cycle[0]]['data'].guard
             if self.current.extra_code.argvs != '':
@@ -467,7 +467,7 @@
                 tr = self.current.graph[cycle[i]][cycle[i + 1]]['data']
                 if tr.event.name != '':
                     self.fd.write('\n'), self.indent(1)
-                    self.fd.write('LOGD("\\n[' + self.current.class_name.upper())
+                    self.fd.write('FSM_LOG("\\n[' + self.current.class_name.upper())
                     self.fd.write('] Event ' + tr.event.name)
                     if tr.guard:
                         self.fd.write(' [' + tr.guard + ']')
@@ -493,12 +493,12 @@
             self.generate_line_separator(0, ' ', 80, '-')
             self.fd.write('TEST(' + self.current.class_name + 'Tests, TestPath' + str(count) + ')\n{\n')
             count += 1
-            self.indent(1), self.fd.write('LOGD("===========================================\\n");\n')
-            self.indent(1), self.fd.write('LOGD("Check path:')
+            self.indent(1), self.fd.write('FSM_LOG("===========================================\\n");\n')
+            self.indent(1), self.fd.write('FSM_LOG("Check path:')
             for c in path:
                 self.fd.write(' ' + c)
             self.fd.write('\\n");\n')
-            self.indent(1), self.fd.write('LOGD("===========================================\\n");\n')
+            self.indent(1), self.fd.write('FSM_LOG("===========================================\\n");\n')
             self.indent(1), self.fd.write(self.current.class_name + ' fsm')
             guard = (self.current.graph[path[0]][path[1]]['data'].guard
                      if len(path) > 1 else '')
@@ -512,7 +512,7 @@
                 if event.name != '':
                     guard2 = self.current.graph[path[i]][path[i + 1]]['data'].guard
                     self.fd.write('\n'), self.indent(1)
-                    self.fd.write('LOGD("[' + self.current.class_name.upper())
+                    self.fd.write('FSM_LOG("[' + self.current.class_name.upper())
                     self.fd.write('] Event ' + event.name)
                     if guard2:
                         self.fd.write(' [' + guard2 + ']')

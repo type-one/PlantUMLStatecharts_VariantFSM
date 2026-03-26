@@ -1,10 +1,12 @@
 // This file as been generated the June 29, 2022 from the PlantUML statechart ../SimpleComposite.plantuml
 // This code generation is still experimental. Some border cases may not be correctly managed!
 
-#ifndef ENABLESYSTEMSUB_HPP
-#  define ENABLESYSTEMSUB_HPP
+#pragma once
 
-#  include "StateMachine.hpp"
+#ifndef ENABLESYSTEMSUB_HPP
+#define ENABLESYSTEMSUB_HPP
+
+#include "state_machine.hpp"
 
 //********************************************************************************
 //! \brief States of the state machine.
@@ -63,7 +65,7 @@ public: // Constructor and external events
     {
         StateMachine::start();
         {
-            LOGD("[ENABLESYSTEMSUB][STATE [*]] Candidate for internal transitioning to state ON\n");
+            FSM_LOG("[ENABLESYSTEMSUB][STATE [*]] Candidate for internal transitioning to state ON\n");
             static const Transition tr =
             {
                 .destination = EnableSystemSubStates::ON,
@@ -78,7 +80,7 @@ public: // Constructor and external events
     //----------------------------------------------------------------------------
     void off()
     {
-        LOGD("[ENABLESYSTEMSUB][EVENT %s]\n", __func__);
+        FSM_LOG("[ENABLESYSTEMSUB][EVENT %s]\n", __func__);
 
         static const Transitions s_transitions =
         {
@@ -98,7 +100,7 @@ public: // Constructor and external events
     //----------------------------------------------------------------------------
     void on()
     {
-        LOGD("[ENABLESYSTEMSUB][EVENT %s]\n", __func__);
+        FSM_LOG("[ENABLESYSTEMSUB][EVENT %s]\n", __func__);
 
         static const Transitions s_transitions =
         {

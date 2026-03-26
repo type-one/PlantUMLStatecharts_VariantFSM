@@ -1,10 +1,12 @@
 // This file as been generated the June 29, 2022 from the PlantUML statechart ../SimpleSimpleCompositeController.plantuml
 // This code generation is still experimental. Some border cases may not be correctly managed!
 
-#ifndef SIMPLECOMPOSITECONTROLLER_HPP
-#  define SIMPLECOMPOSITECONTROLLER_HPP
+#pragma once
 
-#  include "EnableSystemSub.hpp"
+#ifndef SIMPLECOMPOSITECONTROLLER_HPP
+#define SIMPLECOMPOSITECONTROLLER_HPP
+
+#include "EnableSystemSub.hpp"
 
 //********************************************************************************
 //! \brief States of the state machine.
@@ -66,7 +68,7 @@ public: // Constructor and external events
 
         // Internal transition
         {
-            LOGD("[SIMPLECOMPOSITECONTROLLER][STATE [*]] Candidate for internal transitioning to state ENABLESYSTEM\n");
+            FSM_LOG("[SIMPLECOMPOSITECONTROLLER][STATE [*]] Candidate for internal transitioning to state ENABLESYSTEM\n");
             static const Transition tr =
             {
                 .destination = SimpleCompositeControllerStates::ENABLESYSTEM,
@@ -91,7 +93,7 @@ public: // Constructor and external events
     //----------------------------------------------------------------------------
     void disable()
     {
-        LOGD("[SIMPLECOMPOSITECONTROLLER][EVENT %s]\n", __func__);
+        FSM_LOG("[SIMPLECOMPOSITECONTROLLER][EVENT %s]\n", __func__);
 
 m_enable_system.stop();
 
@@ -113,7 +115,7 @@ m_enable_system.stop();
     //----------------------------------------------------------------------------
     void enable()
     {
-        LOGD("[SIMPLECOMPOSITECONTROLLER][EVENT %s]\n", __func__);
+        FSM_LOG("[SIMPLECOMPOSITECONTROLLER][EVENT %s]\n", __func__);
 
         m_enable_system.start();
 
