@@ -109,19 +109,3 @@ system will be frozen and the tool is detecting them.
 **WARNING: This case is not managed by this tool**
 
 ![alt triggers](../doc/Triggers.png)
-
-## Hierarchic State Machines (HSM)
-
-**WARNING: All these examples are not yet parsed by the tool. In gestation**
-
-## Simple Composite
-
-![alt composite](../doc/SimpleComposite.png)
-
-## Simple Orthogonal
-
-![alt ortho](../doc/SimpleOrthogonal.png)
-
-## Dead Man Detector for pump
-
-![alt pompe](../doc/Pompe.png)

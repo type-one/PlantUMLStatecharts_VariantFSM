@@ -47,10 +47,9 @@ in the last section of this document.
 ## Limitation: what the tools cannot offer to you
 
 - Generate only C++ code. You can help contributing to generate other languages.
-- Parsing Hierarchic State Machine (HSM). Currently, the tool only parses simple
-  Finite State Machine (FSM). I'm thinking about how to upgrade this tool.
-- For FSM, the tool does not parse fork, concurrent states, composite states,
-  pseudo-states, history.
+- The tool only parses simple finite state machines. Hierarchical, orthogonal,
+  concurrent, composite, fork/join, pseudo-states, and history are not
+  supported.
 - For FSM, the `do / activity` and `after(X ms)` are not yet managed.
 - Does not manage multi-edges (several transitions from the same origin and
   destination state). As consequence, you cannot add several `on event` in the
@@ -378,7 +377,8 @@ Our implementation is the following:
   an introduction to UML statecharts in French.
 - [ML/SysML Diagramme d'etat Programmation Arduino](https://eduscol.education.fr/sti/ressources_pedagogiques/umlsysml-diagramme-detat-et-programmation-arduino#fichiers-liens)
   a French course to statecharts with open source code source. The API is simple
-  to read but is the only one I saw offering HSM, activities, and history, ...
+  to read but is the only one I saw offering advanced statechart features such
+  as activities and history.
 - [State Machine Design in C++](https://www.codeproject.com/Articles/1087619/State-Machine-Design-in-Cplusplus-2)
   The C++ code of our state machine is inspired by this project.
 - [Towards Efficient Code Synthesis from Statecharts](https://cs.emis.de/LNI/Proceedings/Proceedings07/TowardEfficCode_3.pdf)
