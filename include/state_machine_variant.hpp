@@ -21,6 +21,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 // ############################################################################
+//
+// NOTE ABOUT LICENSING
+// This header is licensed under MIT (see block above).
+// It is intentionally not GPL-licensed.
 
 #pragma once
 
