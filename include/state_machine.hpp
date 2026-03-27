@@ -35,10 +35,8 @@
 #include <cassert>
 #include <cstdlib>
 #include <map>
-#include <queue>
-#if defined(FSM_THREAD_SAFETY)
 #include <mutex>
-#endif
+#include <queue>
 
 
 //-----------------------------------------------------------------------------
@@ -58,6 +56,43 @@
 //-----------------------------------------------------------------------------
 template <class STATES_ID>
 const char* stringify(STATES_ID const state);
+
+namespace fsm_detail
+{
+
+    template <bool ThreadSafe>
+    class transition_lock_support;
+
+    template <>
+    class transition_lock_support<true>
+    {
+    protected:
+        std::unique_lock<std::mutex> make_transition_lock()
+        {
+            return std::unique_lock<std::mutex>(m_mutex, std::try_to_lock);
+        }
+
+    private:
+        std::mutex m_mutex;
+    };
+
+    template <>
+    class transition_lock_support<false>
+    {
+    protected:
+        class no_op_lock
+        {
+        public:
+            no_op_lock() = default;
+        };
+
+        no_op_lock make_transition_lock() const
+        {
+            return no_op_lock{};
+        }
+    };
+
+} // namespace fsm_detail
 
 // *****************************************************************************
 //! \brief Base class for depicting and running small Finite State Machine (FSM)
@@ -137,8 +172,8 @@ const char* stringify(STATES_ID const state);
 //! Transition, like states, can do reaction and have guards as pointer
 //! functions.
 // *****************************************************************************
-template <typename FSM, class STATES_ID>
-class state_machine
+template <typename FSM, class STATES_ID, bool ThreadSafe = false>
+class state_machine : private fsm_detail::transition_lock_support<ThreadSafe>
 {
 public:
     //! \brief Pointer method with no argument and returning a boolean.
@@ -197,8 +232,8 @@ public:
     using Transitions = transitions;
 
     //--------------------------------------------------------------------------
-    //! \brief Default constructor. Pass the number of states the FSM will use,
-    //! set the initial state and if mutex shall have to be used.
+    //! \brief Default constructor. Pass the number of states the FSM will use
+    //! and set the initial state.
     //! \param[in] initial the initial state to start with.
     //--------------------------------------------------------------------------
     state_machine(STATES_ID const initial) // FIXME should be ok for constexpr
@@ -328,17 +363,13 @@ public:
         return is_active();
     }
 
-#if defined(FSM_THREAD_SAFETY)
-private:
-    std::mutex m_mutex;
-#endif
 };
 
-template <typename FSM, class STATES_ID>
-class StateMachine : public state_machine<FSM, STATES_ID>
+template <typename FSM, class STATES_ID, bool ThreadSafe = false>
+class StateMachine : public state_machine<FSM, STATES_ID, ThreadSafe>
 {
 public:
-    using state_machine<FSM, STATES_ID>::state_machine;
+    using state_machine<FSM, STATES_ID, ThreadSafe>::state_machine;
 
     ~StateMachine() = default;
     StateMachine(StateMachine const&) = delete;
@@ -346,74 +377,72 @@ public:
     StateMachine& operator=(StateMachine const&) = delete;
     StateMachine& operator=(StateMachine&&) = delete;
 
-    using typename state_machine<FSM, STATES_ID>::bool_function_ptr;
-    using typename state_machine<FSM, STATES_ID>::void_function_ptr;
-    using typename state_machine<FSM, STATES_ID>::state;
-    using typename state_machine<FSM, STATES_ID>::transition;
-    using typename state_machine<FSM, STATES_ID>::states;
-    using typename state_machine<FSM, STATES_ID>::transitions;
-    using typename state_machine<FSM, STATES_ID>::bFuncPtr;
-    using typename state_machine<FSM, STATES_ID>::xFuncPtr;
-    using typename state_machine<FSM, STATES_ID>::State;
-    using typename state_machine<FSM, STATES_ID>::Transition;
-    using typename state_machine<FSM, STATES_ID>::States;
-    using typename state_machine<FSM, STATES_ID>::Transitions;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::bool_function_ptr;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::void_function_ptr;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::state;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::transition;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::states;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::transitions;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::bFuncPtr;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::xFuncPtr;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::State;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::Transition;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::States;
+    using typename state_machine<FSM, STATES_ID, ThreadSafe>::Transitions;
 
     void enter()
     {
-        state_machine<FSM, STATES_ID>::enter();
+        state_machine<FSM, STATES_ID, ThreadSafe>::enter();
     }
 
     void exit()
     {
-        state_machine<FSM, STATES_ID>::exit();
+        state_machine<FSM, STATES_ID, ThreadSafe>::exit();
     }
 
     void start()
     {
-        state_machine<FSM, STATES_ID>::start();
+        state_machine<FSM, STATES_ID, ThreadSafe>::start();
     }
 
     void stop()
     {
-        state_machine<FSM, STATES_ID>::stop();
+        state_machine<FSM, STATES_ID, ThreadSafe>::stop();
     }
 
     void reset()
     {
-        state_machine<FSM, STATES_ID>::reset();
+        state_machine<FSM, STATES_ID, ThreadSafe>::reset();
     }
 
     [[nodiscard]] bool isActive() const
     {
-        return state_machine<FSM, STATES_ID>::isActive();
+        return state_machine<FSM, STATES_ID, ThreadSafe>::isActive();
     }
 
     [[nodiscard]] bool is_active() const
     {
-        return state_machine<FSM, STATES_ID>::is_active();
+        return state_machine<FSM, STATES_ID, ThreadSafe>::is_active();
     }
 };
 
 namespace fsm
 {
 
-    template <typename FSM, class STATES_ID>
-    using state_machine = ::state_machine<FSM, STATES_ID>;
+    template <typename FSM, class STATES_ID, bool ThreadSafe = false>
+    using state_machine = ::state_machine<FSM, STATES_ID, ThreadSafe>;
 
-    template <typename FSM, class STATES_ID>
-    using StateMachine = ::StateMachine<FSM, STATES_ID>;
+    template <typename FSM, class STATES_ID, bool ThreadSafe = false>
+    using StateMachine = ::StateMachine<FSM, STATES_ID, ThreadSafe>;
 
 } // namespace fsm
 
 //------------------------------------------------------------------------------
-template <class FSM, class STATES_ID>
-void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATES_ID>::Transition const* tr)
+template <class FSM, class STATES_ID, bool ThreadSafe>
+void state_machine<FSM, STATES_ID, ThreadSafe>::transition(typename state_machine<FSM, STATES_ID, ThreadSafe>::Transition const* tr)
 {
-#if defined(FSM_THREAD_SAFETY)
     // Recursive/internal calls won't own the lock, which is expected.
-    std::unique_lock<std::mutex> lock(m_mutex, std::try_to_lock);
-#endif
+    auto lock = this->make_transition_lock();
 
     // Reaction from internal event (therefore coming from this method called by
     // one of the action functions: memorize and leave the function: it will
@@ -431,7 +460,7 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
     }
 
     m_nesting.push(tr);
-    typename state_machine<FSM, STATES_ID>::Transition const* current_transition = nullptr;
+    typename state_machine<FSM, STATES_ID, ThreadSafe>::Transition const* current_transition = nullptr;
     do
     {
         // Consum the current state
@@ -462,9 +491,9 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
         }
 
         // Reaction: call the member function associated to the current state
-        typename state_machine<FSM, STATES_ID>::State const& cst =
+        typename state_machine<FSM, STATES_ID, ThreadSafe>::State const& cst =
             m_states[static_cast<int>(m_current_state)];
-        typename state_machine<FSM, STATES_ID>::State const& nst =
+        typename state_machine<FSM, STATES_ID, ThreadSafe>::State const& nst =
             m_states[static_cast<int>(current_transition->destination)];
 
         // Call the guard

@@ -2,6 +2,9 @@
 
 from lark import Lark, Transformer
 import os, sys
+import subprocess
+import tempfile
+from pathlib import Path
 
 def check(exp):
     if not exp:
@@ -270,6 +273,60 @@ def check_AST(root):
 #    check(c0.children[1] == '->')
 #    check(c0.children[2] == 'NumLockOff')
 
+def check_generated_headers_contract():
+    repo_root = Path(__file__).resolve().parents[2]
+    translator = repo_root / 'translator' / 'statecharts.py'
+    source = repo_root / 'examples' / 'SimpleFSM.plantuml'
+
+    expected_hpp_includes = [
+        '#include "state_machine.hpp"',
+        '#include <array>',
+        '#include <cassert>',
+        '#include <cstdlib>',
+        '#include <map>',
+        '#include <mutex>',
+        '#include <queue>',
+        '#include <cstdio>',
+    ]
+
+    expected_hpp20_includes = [
+        '#include "state_machine_variant.hpp"',
+        '#include <cstdio>',
+        '#include <cstring>',
+        '#include <mutex>',
+        '#include <optional>',
+        '#include <type_traits>',
+        '#include <utility>',
+        '#include <variant>',
+    ]
+
+    with tempfile.TemporaryDirectory(prefix='fsm_gen_contract_') as out:
+        out_path = Path(out)
+
+        subprocess.run(
+            ['python3', str(translator), str(source), 'hpp', '-o', str(out_path)],
+            check=True,
+            cwd=repo_root,
+        )
+        hpp = (out_path / 'simple_fsm.hpp').read_text()
+
+        subprocess.run(
+            ['python3', str(translator), str(source), 'hpp20', '-o', str(out_path)],
+            check=True,
+            cwd=repo_root,
+        )
+        hpp20 = (out_path / 'simple_fsm.hpp').read_text()
+
+    for inc in expected_hpp_includes:
+        check(inc in hpp)
+    for inc in expected_hpp20_includes:
+        check(inc in hpp20)
+
+    check('#define MOCKABLE' in hpp)
+    check('#define MOCKABLE' in hpp20)
+    check('#  define MOCKABLE' not in hpp)
+    check('#  define MOCKABLE' not in hpp20)
+
 def main():
     f = open('../statecharts.ebnf')
     parser = Lark(f.read())
@@ -280,6 +337,7 @@ def main():
     # state_diagram wrapper since grammar refactoring removed that layer).
     check(ast.data == 'start')
     check_AST(ast)
+    check_generated_headers_contract()
 
 if __name__ == '__main__':
     main()

@@ -514,6 +514,8 @@ class Parser(object):
         self.namespace = ''
         # Code-generation mode for variant backend.
         self.gen_mode = 'inline'
+        # Generation-time thread-safety switch.
+        self.thread_safe = False
         # Indentation used for method comment separators.
         self.method_comment_indent = 4
 
@@ -607,6 +609,12 @@ class Parser(object):
     def variant_state_alias(self):
         return 'fsm_state' if self.snake_case else 'FsmState'
 
+    def runtime_base_template_arguments(self):
+        args = [self.current.class_name, self.current.enum_name]
+        if self.thread_safe:
+            args.append('true')
+        return ', '.join(args)
+
     def runtime_base_class_name(self):
         return 'state_machine' if self.snake_case else 'StateMachine'
 
@@ -694,12 +702,21 @@ class Parser(object):
             self.generate_include(indent, '"', sm.class_name + '.hpp', '"')
         if len(self.current.children) == 0:
             self.generate_include(indent, '"', 'state_machine.hpp', '"')
+            self.fd.write('\n')
+            self.generate_include(indent, '<', 'array', '>')
+            self.generate_include(indent, '<', 'cassert', '>')
+            self.generate_include(indent, '<', 'cstdlib', '>')
+            self.generate_include(indent, '<', 'map', '>')
+            self.generate_include(indent, '<', 'mutex', '>')
+            self.generate_include(indent, '<', 'queue', '>')
+            self.generate_include(indent, '<', 'cstdio', '>')
+            self.fd.write('\n')
         for w in self.current.warnings:
             self.fd.write('\n#warning "' + w + '"\n')
         if hpp:
             self.fd.write('// Provide a default empty MOCKABLE for non-testing builds.\n')
             self.fd.write('#ifndef MOCKABLE\n')
-            self.fd.write('#  define MOCKABLE\n')
+            self.fd.write('#define MOCKABLE\n')
             self.fd.write('#endif\n')
         self.fd.write(self.current.extra_code.header)
         self.fd.write('\n')
@@ -1087,7 +1104,7 @@ class Parser(object):
     def generate_state_machine_class(self):
         self.generate_class_comment()
         self.fd.write('class ' + self.current.class_name + ' : public ' + self.runtime_base_class_qualified_name() + '<')
-        self.fd.write(self.current.class_name + ', ' + self.current.enum_name + '>\n')
+        self.fd.write(self.runtime_base_template_arguments() + '>\n')
         self.fd.write('{\n')
         self.fd.write('public: // Constructor and destructor\n\n')
         self.generate_constructor_method()
@@ -1131,7 +1148,7 @@ class Parser(object):
     def generate_state_machine_class_declaration(self):
         self.generate_class_comment()
         self.fd.write('class ' + self.current.class_name + ' : public ' + self.runtime_base_class_qualified_name() + '<')
-        self.fd.write(self.current.class_name + ', ' + self.current.enum_name + '>\n')
+        self.fd.write(self.runtime_base_template_arguments() + '>\n')
         self.fd.write('{\n')
         self.fd.write('public: // Constructor and destructor\n\n')
         self.indent(1), self.fd.write(self.current.class_name + '(' + self.current.extra_code.argvs + ');\n')
@@ -1671,6 +1688,14 @@ class Parser(object):
         self.generate_common_header()
         self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
         self.fd.write('\n')
+        self.generate_include(0, '<', 'array', '>')
+        self.generate_include(0, '<', 'cassert', '>')
+        self.generate_include(0, '<', 'cstdlib', '>')
+        self.generate_include(0, '<', 'map', '>')
+        self.generate_include(0, '<', 'mutex', '>')
+        self.generate_include(0, '<', 'queue', '>')
+        self.generate_include(0, '<', 'cstdio', '>')
+        self.fd.write('\n')
         self.generate_namespace_begin()
         self.method_comment_indent = 0
         self.generate_stringify_definition()
@@ -1728,12 +1753,21 @@ class Parser(object):
             self.generate_include(indent, '"', sm.class_name + '.hpp', '"')
         if len(self.current.children) == 0:
             self.generate_include(indent, '"', 'state_machine_variant.hpp', '"')
+            self.fd.write('\n')
+            self.generate_include(indent, '<', 'cstdio', '>')
+            self.generate_include(indent, '<', 'cstring', '>')
+            self.generate_include(indent, '<', 'mutex', '>')
+            self.generate_include(indent, '<', 'optional', '>')
+            self.generate_include(indent, '<', 'type_traits', '>')
+            self.generate_include(indent, '<', 'utility', '>')
+            self.generate_include(indent, '<', 'variant', '>')
+            self.fd.write('\n')
         for w in self.current.warnings:
             self.fd.write('\n#warning "' + w + '"\n')
         if hpp:
             self.fd.write('// Provide a default empty MOCKABLE for non-testing builds.\n')
             self.fd.write('#ifndef MOCKABLE\n')
-            self.fd.write('#  define MOCKABLE\n')
+            self.fd.write('#define MOCKABLE\n')
             self.fd.write('#endif\n')
         self.fd.write(self.current.extra_code.header)
         self.fd.write('\n')
@@ -1761,15 +1795,13 @@ class Parser(object):
         self.fd.write('>;\n\n')
 
     def emit_variant_thread_safety_lock(self, depth):
-        self.indent(depth), self.fd.write('#if defined(FSM_THREAD_SAFETY)\n')
-        self.indent(depth), self.fd.write('std::lock_guard<std::mutex> lock(m_mutex);\n')
-        self.indent(depth), self.fd.write('#endif\n')
-        self.fd.write('\n')
+        if self.thread_safe:
+            self.indent(depth), self.fd.write('std::lock_guard<std::mutex> lock(m_mutex);\n')
+            self.fd.write('\n')
 
     def emit_variant_thread_safety_member(self, depth):
-        self.indent(depth), self.fd.write('#if defined(FSM_THREAD_SAFETY)\n')
-        self.indent(depth), self.fd.write('mutable std::mutex m_mutex;\n')
-        self.indent(depth), self.fd.write('#endif\n')
+        if self.thread_safe:
+            self.indent(depth), self.fd.write('mutable std::mutex m_mutex;\n')
 
     def generate_variant_c_str(self):
         """Generate c_str() that visits the variant and returns a string literal."""
@@ -2308,6 +2340,14 @@ class Parser(object):
         self.generate_common_header()
         self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
         self.fd.write('\n')
+        self.generate_include(0, '<', 'cstdio', '>')
+        self.generate_include(0, '<', 'cstring', '>')
+        self.generate_include(0, '<', 'mutex', '>')
+        self.generate_include(0, '<', 'optional', '>')
+        self.generate_include(0, '<', 'type_traits', '>')
+        self.generate_include(0, '<', 'utility', '>')
+        self.generate_include(0, '<', 'variant', '>')
+        self.fd.write('\n')
         self.generate_namespace_begin()
         self.method_comment_indent = 0
         self.generate_variant_state_machine_definitions()
@@ -2819,7 +2859,7 @@ class Parser(object):
                     self.fatal('Formatting failed for generated file ' + str(file_path))
 
     def translate(self, uml_file, cpp_or_hpp, postfix, output_dir='.', snake_case=True,
-                  namespace='', gen_mode='inline', clang_format_mode='off'):
+                  namespace='', gen_mode='inline', clang_format_mode='off', thread_safe=False):
         # Make the parser understand the plantUML grammar
         if self.parser == None:
             grammar_file = str(Path(__file__).resolve().with_name('statecharts.ebnf'))
@@ -2839,6 +2879,7 @@ class Parser(object):
         self.snake_case = snake_case
         self.namespace = namespace
         self.gen_mode = gen_mode
+        self.thread_safe = thread_safe
         os.makedirs(self.output_dir, exist_ok=True)
         self.fd = open(self.uml_file, 'r')
         self.ast = self.parser.parse(self.fd.read())
@@ -2875,7 +2916,7 @@ class Parser(object):
 ### Display command line usage
 ###############################################################################
 def usage():
-    print('Command line: ' + sys.argv[0] + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>] [--clang-format|--check-clang-format]')
+    print('Command line: ' + sys.argv[0] + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>] [--thread-safe] [--clang-format|--check-clang-format]')
     print('Where:')
     print('   <plantuml file>: the path of a plantuml statechart')
     print('   "cpp"           : generate C++11 split output (.hpp + .cpp include unit)')
@@ -2887,6 +2928,7 @@ def usage():
     print('   [-s|--snake]: use snake_case naming for generated symbols (default)')
     print('   [-c|--camel]: use CamelCase naming for generated symbols')
     print('   [-n|--namespace <namespace>]: optional C++ namespace for generated class')
+    print('   [--thread-safe]: generate mutex-protected FSM code')
     print('   [--clang-format]: run clang-format -i on generated .hpp/.cpp files in output directory')
     print('   [--check-clang-format]: check generated .hpp/.cpp formatting with clang-format --dry-run --Werror')
     print('Example:')
@@ -2916,6 +2958,7 @@ def main():
     namespace = ''
     gen_mode = 'inline'
     clang_format_mode = 'off'
+    thread_safe = False
     i = 3
     while i < argc:
         arg = sys.argv[i]
@@ -2949,6 +2992,10 @@ def main():
             clang_format_mode = 'check'
             i += 1
             continue
+        if arg == '--thread-safe':
+            thread_safe = True
+            i += 1
+            continue
 
         if postfix == '':
             postfix = arg
@@ -2961,7 +3008,7 @@ def main():
     p = Parser()
     p.translate(sys.argv[1], sys.argv[2], postfix, output_dir,
                 snake_case=snake_case, namespace=namespace, gen_mode=gen_mode,
-                clang_format_mode=clang_format_mode)
+                clang_format_mode=clang_format_mode, thread_safe=thread_safe)
 
 if __name__ == '__main__':
     main()

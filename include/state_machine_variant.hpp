@@ -37,13 +37,11 @@
 
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <optional>
 #include <type_traits>
 #include <utility>
 #include <variant>
-#if defined(FSM_THREAD_SAFETY)
-#include <mutex>
-#endif
 
 //-----------------------------------------------------------------------------
 //! \brief Verbosity activated when compiled with -DFSM_DEBUG.

@@ -180,37 +180,33 @@ g++ --std=c++20 -Wall -Wextra -Iinclude -I. \
 
 The runtime headers support the following optional macros:
 
-- `FSM_DEBUG`: enables runtime trace logging through `FSM_LOG(...)` in both
+- `FSM_DEBUG`: enables runtime trace logging through `FSM_LOGD(...)` in both
   [include/state_machine.hpp](include/state_machine.hpp) and
   [include/state_machine_variant.hpp](include/state_machine_variant.hpp).
-- `FSM_THREAD_SAFETY`: enables mutex-protected transition handling in
-  [include/state_machine.hpp](include/state_machine.hpp) and in generated
-  C++20 variant state machines that include
-  [include/state_machine_variant.hpp](include/state_machine_variant.hpp).
+- `FSM_LOGE(...)`: emits error logs to `stderr`.
 
 Example:
 
 ```bash
-g++ --std=c++14 -DFSM_DEBUG -DFSM_THREAD_SAFETY -Iinclude ...
+g++ --std=c++14 -DFSM_DEBUG -Iinclude ...
 ```
 
-For generated C++20 variant state machines, `FSM_THREAD_SAFETY` enables a
-per-instance `std::mutex` and guards public entry points with
-`std::lock_guard<std::mutex>`.
+Thread safety is now selected at generation time with `--thread-safe`. Without
+that option, generated code contains no mutex member and no locking code.
 
 Typical C++20 build with thread safety enabled:
 
 ```bash
-./statecharts.py path/to/foo.plantuml hpp20 controller -o build/generated
-g++ --std=c++20 -Wall -Wextra -DFSM_THREAD_SAFETY -pthread \
+./statecharts.py path/to/foo.plantuml hpp20 controller -o build/generated --thread-safe
+g++ --std=c++20 -Wall -Wextra -pthread \
   -Iinclude -Ibuild/generated main.cpp -o build/FooApp
 ```
 
 Typical C++20 generated unit-test build with thread safety enabled:
 
 ```bash
-./statecharts.py path/to/foo.plantuml cpp20 controller -o build/generated
-g++ --std=c++20 -Wall -Wextra -DFSM_THREAD_SAFETY -pthread \
+./statecharts.py path/to/foo.plantuml cpp20 controller -o build/generated --thread-safe
+g++ --std=c++20 -Wall -Wextra -pthread \
   -Iinclude -Ibuild/generated \
   build/generated/foo_controller.cpp \
   build/generated/foo_controller_tests.cpp \
@@ -219,7 +215,7 @@ g++ --std=c++20 -Wall -Wextra -DFSM_THREAD_SAFETY -pthread \
 ```
 
 On Linux and other POSIX platforms, `-pthread` is typically required when
-`FSM_THREAD_SAFETY` is enabled.
+thread-safe code is generated with `--thread-safe`.
 
 ## Style and lint compliance (.clang-format / .clang-tidy)
 
