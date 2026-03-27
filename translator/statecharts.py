@@ -1750,18 +1750,30 @@ class Parser(object):
         self.fd.write(', '.join(states))
         self.fd.write('>;\n\n')
 
+    def emit_variant_thread_safety_lock(self, depth):
+        self.indent(depth), self.fd.write('#if defined(FSM_THREAD_SAFETY)\n')
+        self.indent(depth), self.fd.write('std::lock_guard<std::mutex> lock(m_mutex);\n')
+        self.indent(depth), self.fd.write('#endif\n')
+        self.fd.write('\n')
+
+    def emit_variant_thread_safety_member(self, depth):
+        self.indent(depth), self.fd.write('#if defined(FSM_THREAD_SAFETY)\n')
+        self.indent(depth), self.fd.write('mutable std::mutex m_mutex;\n')
+        self.indent(depth), self.fd.write('#endif\n')
+
     def generate_variant_c_str(self):
         """Generate c_str() that visits the variant and returns a string literal."""
         self.generate_method_comment('Return the current state as a C string.')
         self.indent(1), self.fd.write('const char* c_str() const\n')
         self.indent(1), self.fd.write('{\n')
+        self.emit_variant_thread_safety_lock(2)
         self.indent(2), self.fd.write('return std::visit(fsm::overloaded{\n')
         for state in list(self.current.graph.nodes):
             if state in ['[*]', '*']:
                 continue
             name = self.state_name(state)
             self.indent(3)
-            self.fd.write('[](')  
+            self.fd.write('[](')
             self.fd.write(name + ' const&) { return "' + state + '"; },\n')
         self.indent(2), self.fd.write('}, m_state);\n')
         self.indent(1), self.fd.write('}\n\n')
@@ -1770,7 +1782,11 @@ class Parser(object):
         """Generate template<typename S> bool is() const."""
         self.generate_method_comment('Return true if the FSM is currently in state S.')
         self.indent(1), self.fd.write('template<typename S>\n')
-        self.indent(1), self.fd.write('bool is() const { return std::holds_alternative<S>(m_state); }\n\n')
+        self.indent(1), self.fd.write('bool is() const\n')
+        self.indent(1), self.fd.write('{\n')
+        self.emit_variant_thread_safety_lock(2)
+        self.indent(2), self.fd.write('return std::holds_alternative<S>(m_state);\n')
+        self.indent(1), self.fd.write('}\n\n')
 
     def _emit_variant_noevents(self, state, depth):
         """Inline any eventless (no-event) outgoing transitions from a state."""
@@ -1807,6 +1823,7 @@ class Parser(object):
         self.generate_method_comment('Reset the FSM to its initial state.')
         self.indent(1), self.fd.write('void enter()\n')
         self.indent(1), self.fd.write('{\n')
+        self.emit_variant_thread_safety_lock(2)
         self.indent(2), self.fd.write('m_enabled = true;\n')
         if self.current.extra_code.init != '':
             self.fd.write(self.current.extra_code.init)
@@ -1817,6 +1834,7 @@ class Parser(object):
             dest_name = self.state_name(dest)
             tr = self.current.graph['[*]'][dest]['data']
             if tr.guard != '':
+                self.fd.write('\n')
                 self.indent(2)
                 self.fd.write('if (' + self.guard_function('[*]', dest) + '())\n')
                 self.indent(2), self.fd.write('{\n')
@@ -1835,7 +1853,9 @@ class Parser(object):
                     self.fd.write(self.state_entering_function(dest) + '();\n')
                 self._emit_variant_noevents(dest, 2)
         else:
-            for dest in neighbors:
+            for index, dest in enumerate(neighbors):
+                if index != 0:
+                    self.fd.write('\n')
                 tr = self.current.graph['[*]'][dest]['data']
                 dest_name = self.state_name(dest)
                 if tr.guard != '':
@@ -1863,14 +1883,18 @@ class Parser(object):
         """Generate external event methods using std::visit / fsm::overloaded."""
         for (sm, e) in self.current.broadcasts:
             self.generate_method_comment('Broadcast external event.')
-            self.indent(1), self.fd.write('inline '), self.fd.write(e.header())
-            self.fd.write(' { ' + self.child_machine_instance(sm) + '.' + e.caller() + '; }\n\n')
+            self.indent(1), self.fd.write('inline '), self.fd.write(e.header() + '\n')
+            self.indent(1), self.fd.write('{\n')
+            self.emit_variant_thread_safety_lock(2)
+            self.indent(2), self.fd.write(self.child_machine_instance(sm) + '.' + e.caller() + ';\n')
+            self.indent(1), self.fd.write('}\n\n')
         for event, arcs in self.current.lookup_events.items():
             if event.name == '':
                 continue
             self.generate_method_comment('External event.')
             self.indent(1), self.fd.write(event.header() + '\n')
             self.indent(1), self.fd.write('{\n')
+            self.emit_variant_thread_safety_lock(2)
             for arg in event.params:
                 self.indent(2), self.fd.write(arg + ' = ' + arg + '_;\n')
             if event.params:
@@ -1962,8 +1986,16 @@ class Parser(object):
         self.fd.write('virtual ~' + self.current.class_name + '() = default;\n')
         self.fd.write('#endif\n\n')
         self.generate_variant_enter_method()
-        self.indent(1), self.fd.write('void exit()     { m_enabled = false; }\n')
-        self.indent(1), self.fd.write('bool ' + self.active_method_name() + '() const { return m_enabled; }\n\n')
+        self.indent(1), self.fd.write('void exit()\n')
+        self.indent(1), self.fd.write('{\n')
+        self.emit_variant_thread_safety_lock(2)
+        self.indent(2), self.fd.write('m_enabled = false;\n')
+        self.indent(1), self.fd.write('}\n')
+        self.indent(1), self.fd.write('bool ' + self.active_method_name() + '() const\n')
+        self.indent(1), self.fd.write('{\n')
+        self.emit_variant_thread_safety_lock(2)
+        self.indent(2), self.fd.write('return m_enabled;\n')
+        self.indent(1), self.fd.write('}\n\n')
         self.generate_variant_c_str()
         self.generate_variant_is_method()
         self.fd.write('public: // External events\n\n')
@@ -1987,6 +2019,7 @@ class Parser(object):
         self.fd.write('\nprivate:\n')
         self.indent(1), self.fd.write(self.variant_state_alias() + ' m_state;\n')
         self.indent(1), self.fd.write('bool  m_enabled = false;\n')
+        self.emit_variant_thread_safety_member(1)
         self.fd.write('};\n\n')
 
     def generate_variant_state_machine(self, cxxfile):
@@ -2054,12 +2087,14 @@ class Parser(object):
         self.fd.write('\nprivate:\n')
         self.indent(1), self.fd.write(self.variant_state_alias() + ' m_state;\n')
         self.indent(1), self.fd.write('bool  m_enabled = false;\n')
+        self.emit_variant_thread_safety_member(1)
         self.fd.write('};\n\n')
 
     def generate_variant_c_str_definition(self):
         self.generate_method_comment('Return the current state as a C string.')
         self.fd.write('const char* ' + self.current.class_name + '::c_str() const\n')
         self.fd.write('{\n')
+        self.emit_variant_thread_safety_lock(1)
         self.indent(1), self.fd.write('return std::visit(fsm::overloaded{\n')
         for state in list(self.current.graph.nodes):
             if state in ['[*]', '*']:
@@ -2073,6 +2108,7 @@ class Parser(object):
         self.generate_method_comment('Reset the FSM to its initial state.')
         self.fd.write('void ' + self.current.class_name + '::enter()\n')
         self.fd.write('{\n')
+        self.emit_variant_thread_safety_lock(1)
         self.indent(1), self.fd.write('m_enabled = true;\n')
         if self.current.extra_code.init != '':
             self.fd.write(self.current.extra_code.init)
@@ -2082,6 +2118,7 @@ class Parser(object):
             dest_name = self.state_name(dest)
             tr = self.current.graph['[*]'][dest]['data']
             if tr.guard != '':
+                self.fd.write('\n')
                 self.indent(1), self.fd.write('if (' + self.guard_function('[*]', dest) + '())\n')
                 self.indent(1), self.fd.write('{\n')
                 self.indent(2), self.fd.write('m_state = ' + dest_name + '{};\n')
@@ -2097,7 +2134,9 @@ class Parser(object):
                     self.indent(1), self.fd.write(self.state_entering_function(dest) + '();\n')
                 self._emit_variant_noevents(dest, 1)
         else:
-            for dest in neighbors:
+            for index, dest in enumerate(neighbors):
+                if index != 0:
+                    self.fd.write('\n')
                 tr = self.current.graph['[*]'][dest]['data']
                 dest_name = self.state_name(dest)
                 if tr.guard != '':
@@ -2122,7 +2161,10 @@ class Parser(object):
         for (sm, e) in self.current.broadcasts:
             self.generate_method_comment('Broadcast external event.')
             self.fd.write(e.header(name=self.current.class_name + '::' + e.name) + '\n')
-            self.fd.write('{ ' + self.child_machine_instance(sm) + '.' + e.caller() + '; }\n\n')
+            self.fd.write('{\n')
+            self.emit_variant_thread_safety_lock(1)
+            self.indent(1), self.fd.write(self.child_machine_instance(sm) + '.' + e.caller() + ';\n')
+            self.fd.write('}\n\n')
 
         for event, arcs in self.current.lookup_events.items():
             if event.name == '':
@@ -2130,6 +2172,7 @@ class Parser(object):
             self.generate_method_comment('External event.')
             self.fd.write(event.header(name=self.current.class_name + '::' + event.name) + '\n')
             self.fd.write('{\n')
+            self.emit_variant_thread_safety_lock(1)
             for arg in event.params:
                 self.indent(1), self.fd.write(arg + ' = ' + arg + '_;\n')
             if event.params:
@@ -2227,10 +2270,12 @@ class Parser(object):
         self.generate_variant_enter_method_definition()
 
         self.fd.write('void ' + self.current.class_name + '::exit()\n{\n')
+        self.emit_variant_thread_safety_lock(1)
         self.indent(1), self.fd.write('m_enabled = false;\n')
         self.fd.write('}\n\n')
 
         self.fd.write('bool ' + self.current.class_name + '::' + self.active_method_name() + '() const\n{\n')
+        self.emit_variant_thread_safety_lock(1)
         self.indent(1), self.fd.write('return m_enabled;\n')
         self.fd.write('}\n\n')
 

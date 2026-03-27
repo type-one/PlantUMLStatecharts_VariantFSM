@@ -184,13 +184,42 @@ The runtime headers support the following optional macros:
   [include/state_machine.hpp](include/state_machine.hpp) and
   [include/state_machine_variant.hpp](include/state_machine_variant.hpp).
 - `FSM_THREAD_SAFETY`: enables mutex-protected transition handling in
-  [include/state_machine.hpp](include/state_machine.hpp).
+  [include/state_machine.hpp](include/state_machine.hpp) and in generated
+  C++20 variant state machines that include
+  [include/state_machine_variant.hpp](include/state_machine_variant.hpp).
 
 Example:
 
 ```bash
 g++ --std=c++14 -DFSM_DEBUG -DFSM_THREAD_SAFETY -Iinclude ...
 ```
+
+For generated C++20 variant state machines, `FSM_THREAD_SAFETY` enables a
+per-instance `std::mutex` and guards public entry points with
+`std::lock_guard<std::mutex>`.
+
+Typical C++20 build with thread safety enabled:
+
+```bash
+./statecharts.py path/to/foo.plantuml hpp20 controller -o build/generated
+g++ --std=c++20 -Wall -Wextra -DFSM_THREAD_SAFETY -pthread \
+  -Iinclude -Ibuild/generated main.cpp -o build/FooApp
+```
+
+Typical C++20 generated unit-test build with thread safety enabled:
+
+```bash
+./statecharts.py path/to/foo.plantuml cpp20 controller -o build/generated
+g++ --std=c++20 -Wall -Wextra -DFSM_THREAD_SAFETY -pthread \
+  -Iinclude -Ibuild/generated \
+  build/generated/foo_controller.cpp \
+  build/generated/foo_controller_tests.cpp \
+  `pkg-config --cflags --libs gtest gmock` \
+  -o build/FooControllerTests
+```
+
+On Linux and other POSIX platforms, `-pthread` is typically required when
+`FSM_THREAD_SAFETY` is enabled.
 
 ## Compile Examples
 
