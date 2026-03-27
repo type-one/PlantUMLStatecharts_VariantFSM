@@ -1,0 +1,22 @@
+# https://clangformat.com/
+# http://clang.llvm.org/docs/ClangFormatStyleOptions.html
+# https://webkit.org/code-style-guidelines/
+BasedOnStyle: WebKit
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+Language: Cpp
+Standard: c++20
+ColumnLimit: 120
+BreakBeforeBraces: Allman
+AlwaysBreakTemplateDeclarations: true
+AlignTrailingComments: true
+IndentCaseLabels: true
+MaxEmptyLinesToKeep: 2
+NamespaceIndentation: All
+SpaceBeforeAssignmentOperators: true
+SpacesBeforeTrailingComments: 1
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: false
+# SortIncludes: false

@@ -31,10 +31,11 @@
 #ifndef STATE_MACHINE_HPP
 #define STATE_MACHINE_HPP
 
+#include <cassert>
 #include <map>
 #include <queue>
-#include <cassert>
 #include <stdlib.h>
+
 
 //-----------------------------------------------------------------------------
 //! \brief Verbosity activated in debug mode.
@@ -51,7 +52,7 @@
 //! \brief Return the given state as raw string (they shall not be free).
 //! \note implement this function inside the C++ file of the derived class.
 //-----------------------------------------------------------------------------
-template<class STATES_ID>
+template <class STATES_ID>
 const char* stringify(STATES_ID const state);
 
 // *****************************************************************************
@@ -132,11 +133,10 @@ const char* stringify(STATES_ID const state);
 //! Transition, like states, can do reaction and have guards as pointer
 //! functions.
 // *****************************************************************************
-template<typename FSM, class STATES_ID>
+template <typename FSM, class STATES_ID>
 class state_machine
 {
 public:
-
     //! \brief Pointer method with no argument and returning a boolean.
     using bool_function_ptr = bool (FSM::*)();
     //! \brief Pointer method with no argument and returning void.
@@ -198,7 +198,8 @@ public:
     //! \param[in] initial the initial state to start with.
     //--------------------------------------------------------------------------
     state_machine(STATES_ID const initial) // FIXME should be ok for constexpr
-        : m_current_state(initial), m_initial_state(initial)
+        : m_current_state(initial)
+        , m_initial_state(initial)
     {
         // FIXME static_assert not working
         assert(initial < STATES_ID::MAX_STATES);
@@ -263,7 +264,7 @@ public:
     inline void transition(transitions const& transitions)
     {
         if (!m_enabled)
-            return ;
+            return;
 
         auto const& it = transitions.find(m_current_state);
         if (it != transitions.end())
@@ -273,13 +274,12 @@ public:
         else
         {
             FSM_LOG("[STATE MACHINE] Ignoring external event\n");
-            //LOGE("[STATE MACHINE] Unknow transition. Aborting!\n");
+            // LOGE("[STATE MACHINE] Unknow transition. Aborting!\n");
             //::exit(EXIT_FAILURE);
         }
     }
 
 protected:
-
     //--------------------------------------------------------------------------
     //! \brief Internal transition: jump to the desired state from internal
     //! event. This will call the guard, leaving actions, entering actions ...
@@ -288,7 +288,6 @@ protected:
     void transition(Transition const* tr);
 
 protected:
-
     //! \brief Container of states.
     states m_states;
 
@@ -296,7 +295,6 @@ protected:
     STATES_ID m_current_state;
 
 private:
-
     //! \brief Save the initial state need for restoring initial state.
     STATES_ID m_initial_state;
     //! \brief Temporary variable saving the nesting state (needed for internal
@@ -307,7 +305,6 @@ private:
     bool m_enabled = false;
 
 public:
-
     inline bool is_active() const
     {
         return m_enabled;
@@ -319,7 +316,7 @@ public:
     }
 };
 
-template<typename FSM, class STATES_ID>
+template <typename FSM, class STATES_ID>
 class StateMachine : public state_machine<FSM, STATES_ID>
 {
 public:
@@ -368,18 +365,19 @@ public:
     }
 };
 
-namespace fsm {
+namespace fsm
+{
 
-template<typename FSM, class STATES_ID>
-using state_machine = ::state_machine<FSM, STATES_ID>;
+    template <typename FSM, class STATES_ID>
+    using state_machine = ::state_machine<FSM, STATES_ID>;
 
-template<typename FSM, class STATES_ID>
-using StateMachine = ::StateMachine<FSM, STATES_ID>;
+    template <typename FSM, class STATES_ID>
+    using StateMachine = ::StateMachine<FSM, STATES_ID>;
 
 } // namespace fsm
 
 //------------------------------------------------------------------------------
-template<class FSM, class STATES_ID>
+template <class FSM, class STATES_ID>
 void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATES_ID>::Transition const* tr)
 {
 #if defined(THREAD_SAFETY)
@@ -394,15 +392,14 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
     // continue thank to the while loop. This avoids recursion.
     if (m_nesting.size())
     {
-        FSM_LOG("[STATE MACHINE] Internal event. Memorize state %s\n",
-             stringify(tr->destination));
+        FSM_LOG("[STATE MACHINE] Internal event. Memorize state %s\n", stringify(tr->destination));
         m_nesting.push(tr);
         if (m_nesting.size() >= 16u)
         {
             LOGE("[STATE MACHINE] Infinite loop detected. Abort!\n");
             ::exit(EXIT_FAILURE);
         }
-        return ;
+        return;
     }
 
     m_nesting.push(tr);
@@ -412,8 +409,7 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
         // Consum the current state
         current_transition = m_nesting.front();
 
-        FSM_LOG("[STATE MACHINE] React to event from state %s\n",
-             stringify(m_current_state));
+        FSM_LOG("[STATE MACHINE] React to event from state %s\n", stringify(m_current_state));
 
         // Forbidden event: kill the system
         if (current_transition->destination == STATES_ID::CANNOT_HAPPEN)
@@ -426,7 +422,7 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
         else if (current_transition->destination == STATES_ID::IGNORING_EVENT)
         {
             FSM_LOG("[STATE MACHINE] Ignoring external event\n");
-            return ;
+            return;
         }
 
         // Unknown state: kill the system
@@ -444,22 +440,21 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
         bool guard_res = (current_transition->guard == nullptr);
         if (!guard_res)
         {
-            FSM_LOG("[STATE MACHINE] Call the guard %s -> %s\n",
-                 stringify(m_current_state), stringify(current_transition->destination));
+            FSM_LOG("[STATE MACHINE] Call the guard %s -> %s\n", stringify(m_current_state),
+                stringify(current_transition->destination));
             guard_res = (static_cast<FSM*>(this)->*current_transition->guard)();
         }
 
         if (!guard_res)
         {
             FSM_LOG("[STATE MACHINE] Transition refused by the %s guard. Stay"
-                 " in state %s\n", stringify(current_transition->destination),
-                 stringify(m_current_state));
+                    " in state %s\n",
+                stringify(current_transition->destination), stringify(m_current_state));
         }
         else
         {
             // The guard allowed the transition to the next state
-            FSM_LOG("[STATE MACHINE] Transitioning to new state %s\n",
-                 stringify(current_transition->destination));
+            FSM_LOG("[STATE MACHINE] Transitioning to new state %s\n", stringify(current_transition->destination));
 
             // Transition
             STATES_ID previous_state = m_current_state;
@@ -471,8 +466,7 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
                 // Do reactions when leaving the current state
                 if (cst.leaving != nullptr)
                 {
-                    FSM_LOG("[STATE MACHINE] Call the state %s 'on leaving' action\n",
-                         stringify(previous_state));
+                    FSM_LOG("[STATE MACHINE] Call the state %s 'on leaving' action\n", stringify(previous_state));
                     (static_cast<FSM*>(this)->*cst.leaving)();
                 }
             }
@@ -480,8 +474,8 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
             // Do transitiona ction
             if (current_transition->action != nullptr)
             {
-                FSM_LOG("[STATE MACHINE] Call the transition %s -> %s action\n",
-                     stringify(previous_state), stringify(current_transition->destination));
+                FSM_LOG("[STATE MACHINE] Call the transition %s -> %s action\n", stringify(previous_state),
+                    stringify(current_transition->destination));
                 (static_cast<FSM*>(this)->*current_transition->action)();
             }
 
@@ -492,7 +486,7 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
                 if (nst.entering != nullptr)
                 {
                     FSM_LOG("[STATE MACHINE] Call the state %s 'on entry' action\n",
-                         stringify(current_transition->destination));
+                        stringify(current_transition->destination));
                     (static_cast<FSM*>(this)->*nst.entering)();
                 }
 
@@ -500,14 +494,13 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
                 if (nst.internal != nullptr)
                 {
                     FSM_LOG("[STATE MACHINE] Call the state %s 'on internal' action\n",
-                         stringify(current_transition->destination));
+                        stringify(current_transition->destination));
                     (static_cast<FSM*>(this)->*nst.internal)();
                 }
             }
             else
             {
-                FSM_LOG("[STATE MACHINE] Stay in the same state %s\n",
-                     stringify(current_transition->destination));
+                FSM_LOG("[STATE MACHINE] Stay in the same state %s\n", stringify(current_transition->destination));
             }
         }
 

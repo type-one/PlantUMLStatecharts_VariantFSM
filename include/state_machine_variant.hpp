@@ -35,10 +35,10 @@
 // No base class is needed: the generated class is self-contained.
 // This header supplies only the helpers shared by all generated FSMs.
 
-#include <variant>
-#include <optional>
 #include <cstdio>
 #include <cstring>
+#include <optional>
+#include <variant>
 
 //-----------------------------------------------------------------------------
 //! \brief Verbosity activated when compiled with -DFSM_DEBUG.
@@ -50,29 +50,30 @@
 #endif
 #define LOGE printf
 
-namespace fsm {
-
-// ---------------------------------------------------------------------------
-//! \brief Overloaded-lambda visitor helper (C++17/20).
-//!
-//! Aggregates multiple lambdas into a single visitor type so they can be
-//! passed directly to std::visit.  Example usage:
-//!
-//!   std::visit(fsm::overloaded{
-//!       [](StateA const&) { /* handle A */ },
-//!       [](StateB const&) { /* handle B */ },
-//!       [](auto  const&) { /* fallback  */ },
-//!   }, my_variant);
-// ---------------------------------------------------------------------------
-template<typename... Ts>
-struct overloaded : Ts...
+namespace fsm
 {
-    using Ts::operator()...;
-};
 
-// Deduction guide — required in C++17, optional but harmless in C++20.
-template<typename... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
+    // ---------------------------------------------------------------------------
+    //! \brief Overloaded-lambda visitor helper (C++17/20).
+    //!
+    //! Aggregates multiple lambdas into a single visitor type so they can be
+    //! passed directly to std::visit.  Example usage:
+    //!
+    //!   std::visit(fsm::overloaded{
+    //!       [](StateA const&) { /* handle A */ },
+    //!       [](StateB const&) { /* handle B */ },
+    //!       [](auto  const&) { /* fallback  */ },
+    //!   }, my_variant);
+    // ---------------------------------------------------------------------------
+    template <typename... Ts>
+    struct overloaded : Ts...
+    {
+        using Ts::operator()...;
+    };
+
+    // Deduction guide — required in C++17, optional but harmless in C++20.
+    template <typename... Ts>
+    overloaded(Ts...) -> overloaded<Ts...>;
 
 } // namespace fsm
 

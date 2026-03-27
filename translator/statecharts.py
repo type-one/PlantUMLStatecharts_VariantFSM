@@ -512,6 +512,8 @@ class Parser(object):
         self.namespace = ''
         # Code-generation mode for variant backend.
         self.gen_mode = 'inline'
+        # Indentation used for method comment separators.
+        self.method_comment_indent = 4
 
     ###########################################################################
     ### Is the generated file should be a C++ source file or header file ?
@@ -576,7 +578,7 @@ class Parser(object):
     ### Code generator: add a dummy method comment.
     ###########################################################################
     def generate_method_comment(self, comment):
-        self.generate_comment(4, ' ', comment, '-')
+        self.generate_comment(self.method_comment_indent, ' ', comment, '-')
 
     ###########################################################################
     ### Identation.
@@ -631,6 +633,9 @@ class Parser(object):
 
     def method_stem(self, snake_name, camel_name):
         return snake_name if self.snake_case else camel_name
+
+    def active_method_name(self):
+        return self.method_stem('is_active', 'isActive')
 
     def generate_namespace_begin(self):
         if self.namespace == '':
@@ -855,7 +860,7 @@ class Parser(object):
     ### Note: the table may be empty (all states do not actions) in this case
     ### the table is not generated.
     ###########################################################################
-    def generate_table_of_states(self):
+    def generate_table_of_states(self, base_depth=2):
         for state in list(self.current.graph.nodes):
             s = self.current.graph.nodes[state]['data']
             # Nothing to do with initial state
@@ -864,25 +869,25 @@ class Parser(object):
             # Sparse notation: nullptr are implicit so skip generating them
             if s.entering == '' and s.leaving == '' and s.internal == '':
                 continue
-            self.indent(2), self.fd.write('m_states[int(' + self.state_enum(s.name) + ')] =\n')
-            self.indent(2), self.fd.write('{\n')
+            self.indent(base_depth), self.fd.write('m_states[int(' + self.state_enum(s.name) + ')] =\n')
+            self.indent(base_depth), self.fd.write('{\n')
             if s.leaving != '':
-                self.indent(3), self.fd.write('.leaving = &')
+                self.indent(base_depth + 1), self.fd.write('.leaving = &')
                 self.fd.write(self.state_leaving_function(state, True))
                 self.fd.write(',\n')
             if s.entering != '':
-                self.indent(3), self.fd.write('.entering = &')
+                self.indent(base_depth + 1), self.fd.write('.entering = &')
                 self.fd.write(self.state_entering_function(state, True))
                 self.fd.write(',\n')
             if s.internal != '':
-                self.indent(3), self.fd.write('.internal = &')
+                self.indent(base_depth + 1), self.fd.write('.internal = &')
                 self.fd.write(self.state_internal_function(state, True))
                 self.fd.write(',\n')
             if s.activity != '':
-                self.indent(3), self.fd.write('.activity = &')
+                self.indent(base_depth + 1), self.fd.write('.activity = &')
                 self.fd.write(self.state_activity_function(state, True))
                 self.fd.write(',\n')
-            self.indent(2), self.fd.write('};\n')
+            self.indent(base_depth), self.fd.write('};\n')
 
     ###########################################################################
     ### Generate the code of the state machine constructor method.
@@ -1170,7 +1175,7 @@ class Parser(object):
         self.fd.write(self.current.extra_code.cons), self.fd.write('\n')
         self.fd.write('{\n')
         self.indent(1), self.fd.write('// Init actions on states\n')
-        self.generate_table_of_states()
+        self.generate_table_of_states(base_depth=1)
         self.fd.write('\n')
         self.indent(1), self.fd.write('// Init user code\n')
         self.fd.write(self.current.extra_code.init)
@@ -1652,8 +1657,10 @@ class Parser(object):
         self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
         self.fd.write('\n')
         self.generate_namespace_begin()
+        self.method_comment_indent = 0
         self.generate_stringify_definition()
         self.generate_state_machine_definitions()
+        self.method_comment_indent = 4
         self.generate_namespace_end()
         self.fd.close()
 
@@ -1946,7 +1953,7 @@ class Parser(object):
         self.fd.write('#endif\n\n')
         self.generate_variant_enter_method()
         self.indent(1), self.fd.write('void exit()     { m_enabled = false; }\n')
-        self.indent(1), self.fd.write('bool isActive() const { return m_enabled; }\n\n')
+        self.indent(1), self.fd.write('bool ' + self.active_method_name() + '() const { return m_enabled; }\n\n')
         self.generate_variant_c_str()
         self.generate_variant_is_method()
         self.fd.write('public: // External events\n\n')
@@ -1994,7 +2001,7 @@ class Parser(object):
         self.fd.write('#endif\n')
         self.indent(1), self.fd.write('void enter();\n')
         self.indent(1), self.fd.write('void exit();\n')
-        self.indent(1), self.fd.write('bool isActive() const;\n')
+        self.indent(1), self.fd.write('bool ' + self.active_method_name() + '() const;\n')
         self.indent(1), self.fd.write('const char* c_str() const;\n\n')
 
         self.generate_variant_is_method()
@@ -2213,7 +2220,7 @@ class Parser(object):
         self.indent(1), self.fd.write('m_enabled = false;\n')
         self.fd.write('}\n\n')
 
-        self.fd.write('bool ' + self.current.class_name + '::isActive() const\n{\n')
+        self.fd.write('bool ' + self.current.class_name + '::' + self.active_method_name() + '() const\n{\n')
         self.indent(1), self.fd.write('return m_enabled;\n')
         self.fd.write('}\n\n')
 
@@ -2237,7 +2244,9 @@ class Parser(object):
         self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
         self.fd.write('\n')
         self.generate_namespace_begin()
+        self.method_comment_indent = 0
         self.generate_variant_state_machine_definitions()
+        self.method_comment_indent = 4
         self.generate_namespace_end()
         self.fd.close()
 
@@ -2630,7 +2639,7 @@ class Parser(object):
                 self.current.extra_code.argvs += ', '
             self.current.extra_code.argvs += code
         elif token == '[cons]':
-            self.current.extra_code.cons += ', \n          '
+            self.current.extra_code.cons += '\n        , '
             self.current.extra_code.cons += code
         elif token == '[init]':
             self.current.extra_code.init += '        '
