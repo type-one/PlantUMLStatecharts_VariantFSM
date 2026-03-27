@@ -1093,6 +1093,201 @@ class Parser(object):
         self.fd.write(self.current.extra_code.code)
         self.fd.write('};\n\n')
 
+    def generate_stringify_declaration(self):
+        self.generate_function_comment('Convert enum states to human readable string.')
+        self.fd.write('const char* stringify(' + self.current.enum_name + ' const state);\n\n')
+
+    def generate_stringify_definition(self):
+        self.generate_function_comment('Convert enum states to human readable string.')
+        self.fd.write('const char* stringify(' + self.current.enum_name + ' const state)\n{\n')
+        self.indent(1), self.fd.write('static const char* s_states[] =\n')
+        self.indent(1), self.fd.write('{\n')
+        for state in list(self.current.graph.nodes):
+            self.indent(2), self.fd.write('[int(' + self.state_enum(state) + ')] = "' + state + '",\n')
+        self.indent(1), self.fd.write('};\n\n')
+        self.indent(1), self.fd.write('return s_states[int(state)];\n')
+        self.fd.write('}\n\n')
+
+    def generate_state_machine_class_declaration(self):
+        self.generate_class_comment()
+        self.fd.write('class ' + self.current.class_name + ' : public ' + self.runtime_base_class_qualified_name() + '<')
+        self.fd.write(self.current.class_name + ', ' + self.current.enum_name + '>\n')
+        self.fd.write('{\n')
+        self.fd.write('public: // Constructor and destructor\n\n')
+        self.indent(1), self.fd.write(self.current.class_name + '(' + self.current.extra_code.argvs + ');\n')
+        self.fd.write('#if defined(MOCKABLE)\n')
+        self.indent(1), self.fd.write('virtual ~' + self.current.class_name + '();\n')
+        self.fd.write('#endif\n\n')
+        self.indent(1), self.fd.write('void enter();\n')
+        self.indent(1), self.fd.write('void exit();\n\n')
+
+        self.fd.write('public: // External events\n\n')
+        for (sm, e) in self.current.broadcasts:
+            self.indent(1), self.fd.write(e.header() + ';\n')
+        for event, arcs in self.current.lookup_events.items():
+            if event.name != '':
+                self.indent(1), self.fd.write(event.header() + ';\n')
+        self.fd.write('\n')
+
+        self.fd.write('private: // Guards and actions on transitions\n\n')
+        for origin, destination in list(self.current.graph.edges):
+            tr = self.current.graph[origin][destination]['data']
+            if tr.guard != '':
+                self.indent(1), self.fd.write('MOCKABLE bool ' + self.guard_function(origin, destination) + '();\n')
+            if tr.action != '':
+                self.indent(1), self.fd.write('MOCKABLE void ' + self.transition_function(origin, destination) + '();\n')
+        self.fd.write('\n')
+
+        self.fd.write('private: // Actions on states\n\n')
+        for node in list(self.current.graph.nodes):
+            state = self.current.graph.nodes[node]['data']
+            if state.entering != '':
+                self.indent(1), self.fd.write('MOCKABLE void ' + self.state_entering_function(node, False) + '();\n')
+            if state.leaving != '':
+                self.indent(1), self.fd.write('MOCKABLE void ' + self.state_leaving_function(node, False) + '();\n')
+            if state.internal != '' and node != '[*]':
+                self.indent(1), self.fd.write('void ' + self.state_internal_function(node, False) + '();\n')
+        self.fd.write('\n')
+
+        self.fd.write('private: // Nested state machines\n\n')
+        for sm in self.current.children:
+            self.indent(1), self.fd.write(sm.class_name + ' ' + self.child_machine_instance(sm) + ';\n')
+
+        self.fd.write('private: // Data events\n\n')
+        for event, arcs in self.current.lookup_events.items():
+            for arg in event.params:
+                self.indent(1), self.fd.write('//! \brief Data for event ' + event.name + '\n')
+                self.indent(1), self.fd.write(arg.upper() + ' ' + arg + '{};\n')
+
+        self.fd.write('\nprivate: // Client code\n\n')
+        self.fd.write(self.current.extra_code.code)
+        self.fd.write('};\n\n')
+
+    def generate_state_machine_definitions(self):
+        self.generate_method_comment('Default constructor. Start from initial state and call it actions.')
+        self.fd.write(self.current.class_name + '::' + self.current.class_name + '(' + self.current.extra_code.argvs + ')\n')
+        self.indent(1), self.fd.write(': ' + self.runtime_base_class_name() + '(' + self.state_enum(self.current.initial_state) + ')')
+        self.fd.write(self.current.extra_code.cons), self.fd.write('\n')
+        self.fd.write('{\n')
+        self.indent(1), self.fd.write('// Init actions on states\n')
+        self.generate_table_of_states()
+        self.fd.write('\n')
+        self.indent(1), self.fd.write('// Init user code\n')
+        self.fd.write(self.current.extra_code.init)
+        self.fd.write('}\n\n')
+
+        self.fd.write('#if defined(MOCKABLE)\n')
+        self.generate_method_comment('Needed because of virtual methods.')
+        self.fd.write(self.current.class_name + '::~' + self.current.class_name + '() = default;\n')
+        self.fd.write('#endif\n\n')
+
+        self.generate_method_comment('Reset the state machine and nested machines. Do the initial internal transition.')
+        self.fd.write('void ' + self.current.class_name + '::enter()\n{\n')
+        self.indent(1), self.fd.write(self.runtime_base_class_name() + '::enter();\n')
+        for sm in self.current.children:
+            self.indent(1), self.fd.write(self.child_machine_instance(sm) + '.enter();\n')
+        if self.current.extra_code.init != '':
+            self.fd.write('\n'), self.indent(1), self.fd.write('// Init user code\n')
+            self.fd.write(self.current.extra_code.init)
+        if self.current.graph.nodes['[*]']['data'].internal != '':
+            self.fd.write('\n'), self.indent(1), self.fd.write('// Internal transition\n')
+            self.fd.write(self.current.graph.nodes['[*]']['data'].internal)
+        self.fd.write('}\n\n')
+
+        self.generate_method_comment('Reset the state machine and nested machines. Do the initial internal transition.')
+        self.fd.write('void ' + self.current.class_name + '::exit()\n{\n')
+        self.indent(1), self.fd.write(self.runtime_base_class_name() + '::exit();\n')
+        for sm in self.current.children:
+            self.indent(1), self.fd.write(self.child_machine_instance(sm) + '.exit();\n')
+        self.fd.write('}\n\n')
+
+        for (sm, e) in self.current.broadcasts:
+            self.generate_method_comment('Broadcast external event.')
+            self.fd.write(e.header(name=self.current.class_name + '::' + e.name) + '\n')
+            self.fd.write('{ ' + self.child_machine_instance(sm) + '.' + e.caller() + '; }\n\n')
+
+        for event, arcs in self.current.lookup_events.items():
+            if event.name == '':
+                continue
+            self.generate_method_comment('External event.')
+            self.fd.write(event.header(name=self.current.class_name + '::' + event.name) + '\n')
+            self.fd.write('{\n')
+            self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][EVENT %s]')
+            if len(event.params) != 0:
+                self.fd.write(' with params XXX')
+            self.fd.write('\\n", __func__);\n\n')
+            for arg in event.params:
+                self.indent(1), self.fd.write(arg + ' = ' + arg + '_;\n\n')
+            self.indent(1), self.fd.write('// State transition and actions\n')
+            self.indent(1), self.fd.write('static const ' + self.runtime_transitions_type() + ' s_transitions =\n')
+            self.indent(1), self.fd.write('{\n')
+            for origin, destination in arcs:
+                tr = self.current.graph[origin][destination]['data']
+                self.indent(2), self.fd.write('{\n')
+                self.indent(3), self.fd.write(self.state_enum(origin) + ',\n')
+                self.indent(3), self.fd.write('{\n')
+                self.indent(4), self.fd.write('.destination = ' + self.state_enum(destination) + ',\n')
+                if tr.guard != '':
+                    self.indent(4), self.fd.write('.guard = &' + self.guard_function(origin, destination, True) + ',\n')
+                if tr.action != '':
+                    self.indent(4), self.fd.write('.action = &' + self.transition_function(origin, destination, True) + ',\n')
+                self.indent(3), self.fd.write('},\n')
+                self.indent(2), self.fd.write('},\n')
+            self.indent(1), self.fd.write('};\n\n')
+            self.indent(1), self.fd.write('transition(s_transitions);\n')
+            self.fd.write('}\n\n')
+
+        transitions = list(self.current.graph.edges)
+        for origin, destination in transitions:
+            tr = self.current.graph[origin][destination]['data']
+            if tr.guard != '':
+                self.generate_method_comment('Guard the transition from state ' + origin  + ' to state ' + destination + '.')
+                self.fd.write('MOCKABLE bool ' + self.current.class_name + '::' + self.guard_function(origin, destination) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('const bool guard = (' + tr.guard + ');\n')
+                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][GUARD ' + origin + ' --> ' + destination + ': ' + tr.guard + '] result: %s\\n",\n')
+                self.indent(2), self.fd.write('(guard ? "true" : "false"));\n')
+                self.indent(1), self.fd.write('return guard;\n')
+                self.fd.write('}\n\n')
+            if tr.action != '':
+                self.generate_method_comment('Do the action when transitioning from state ' + origin + ' to state ' + destination + '.')
+                self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.transition_function(origin, destination) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][TRANSITION ' + origin + ' --> ' + destination)
+                if tr.action[0:2] != '//':
+                    self.fd.write(': ' + tr.action + ']\\n");\n')
+                else:
+                    self.fd.write(']\\n");\n')
+                self.indent(1), self.fd.write(tr.action + ';\n')
+                self.fd.write('}\n\n')
+
+        nodes = list(self.current.graph.nodes)
+        for node in nodes:
+            state = self.current.graph.nodes[node]['data']
+            if state.entering != '':
+                self.generate_method_comment('Do the action when entering the state ' + state.name + '.')
+                self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_entering_function(node, False) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
+                self.fd.write(state.entering)
+                self.fd.write('}\n\n')
+            if state.leaving != '':
+                self.generate_method_comment('Do the action when leaving the state ' + state.name + '.')
+                self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_leaving_function(node, False) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
+                self.fd.write(state.leaving)
+                self.fd.write('}\n\n')
+            if state.internal != '':
+                if node == '[*]':
+                    continue
+                self.generate_method_comment('Do the internal transition when leaving the state ' + state.name + '.')
+                self.fd.write('void ' + self.current.class_name + '::' + self.state_internal_function(node, False) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][INTERNAL TRANSITION FROM STATE ' + node + ']\\n");\n')
+                self.fd.write(state.internal)
+                self.fd.write('}\n\n')
+
     ###########################################################################
     ### Generate the header part of the unit test file.
     ###########################################################################
@@ -1441,6 +1636,27 @@ class Parser(object):
         self.generate_footer(hpp)
         self.fd.close()
 
+    def generate_state_machine_split(self, hpp_target, cpp_target):
+        self.fd = open(hpp_target, 'w')
+        self.generate_header(True)
+        self.generate_namespace_begin()
+        self.generate_state_enums()
+        self.generate_stringify_declaration()
+        self.generate_state_machine_class_declaration()
+        self.generate_namespace_end()
+        self.generate_footer(True)
+        self.fd.close()
+
+        self.fd = open(cpp_target, 'w')
+        self.generate_common_header()
+        self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
+        self.fd.write('\n')
+        self.generate_namespace_begin()
+        self.generate_stringify_definition()
+        self.generate_state_machine_definitions()
+        self.generate_namespace_end()
+        self.fd.close()
+
     ###########################################################################
     ### Code generator: entry point generating C++ files: state machine, tests,
     ### macros ...
@@ -1451,13 +1667,23 @@ class Parser(object):
         files = []
         for self.current in self.machines.values():
             f = self.current.class_name + self.tests_file_suffix()
-            files.append(f)
-            filename = self.current.class_name + '.' +  cxxfile
-            target = os.path.join(self.output_dir, filename)
-            self.generate_state_machine(target)
-            self.generate_unit_tests(target, files, separated)
+            if cxxfile == "cpp":
+                hpp_name = self.current.class_name + ".hpp"
+                cpp_name = self.current.class_name + ".cpp"
+                hpp_target = os.path.join(self.output_dir, hpp_name)
+                cpp_target = os.path.join(self.output_dir, cpp_name)
+                files.append(cpp_name)
+                files.append(f)
+                self.generate_state_machine_split(hpp_target, cpp_target)
+                self.generate_unit_tests(hpp_target, files, separated)
+            else:
+                files.append(f)
+                filename = self.current.class_name + "." +  cxxfile
+                target = os.path.join(self.output_dir, filename)
+                self.generate_state_machine(target)
+                self.generate_unit_tests(target, files, separated)
         if separated:
-            mainfile = self.master.class_name + 'MainTests.cpp'
+            mainfile = self.master.class_name + "MainTests.cpp"
             mainfile = os.path.join(self.output_dir, mainfile)
             self.generate_unit_tests_main_file(mainfile, files)
 
@@ -1758,6 +1984,263 @@ class Parser(object):
         self.generate_footer(hpp)
         self.fd.close()
 
+    def generate_variant_state_machine_class_declaration(self):
+        self.generate_class_comment()
+        self.fd.write('class ' + self.current.class_name + '\n{\npublic:\n\n')
+        self.generate_variant_state_alias()
+        self.indent(1), self.fd.write(self.current.class_name + '(' + self.current.extra_code.argvs + ');\n')
+        self.fd.write('#if defined(MOCKABLE)\n')
+        self.indent(1), self.fd.write('virtual ~' + self.current.class_name + '();\n')
+        self.fd.write('#endif\n')
+        self.indent(1), self.fd.write('void enter();\n')
+        self.indent(1), self.fd.write('void exit();\n')
+        self.indent(1), self.fd.write('bool isActive() const;\n')
+        self.indent(1), self.fd.write('const char* c_str() const;\n\n')
+
+        self.generate_variant_is_method()
+
+        self.fd.write('public: // External events\n\n')
+        for (sm, e) in self.current.broadcasts:
+            self.indent(1), self.fd.write(e.header() + ';\n')
+        for event, arcs in self.current.lookup_events.items():
+            if event.name != '':
+                self.indent(1), self.fd.write(event.header() + ';\n')
+
+        self.fd.write('\nprivate: // Guards and actions on transitions\n\n')
+        for origin, destination in list(self.current.graph.edges):
+            tr = self.current.graph[origin][destination]['data']
+            if tr.guard != '':
+                self.indent(1), self.fd.write('MOCKABLE bool ' + self.guard_function(origin, destination) + '();\n')
+            if tr.action != '':
+                self.indent(1), self.fd.write('MOCKABLE void ' + self.transition_function(origin, destination) + '();\n')
+
+        self.fd.write('\nprivate: // Actions on states\n\n')
+        for node in list(self.current.graph.nodes):
+            state = self.current.graph.nodes[node]['data']
+            if state.entering != '':
+                self.indent(1), self.fd.write('MOCKABLE void ' + self.state_entering_function(node, False) + '();\n')
+            if state.leaving != '':
+                self.indent(1), self.fd.write('MOCKABLE void ' + self.state_leaving_function(node, False) + '();\n')
+
+        self.fd.write('\nprivate: // Nested state machines\n\n')
+        for sm in self.current.children:
+            self.indent(1), self.fd.write(sm.class_name + ' ' + self.child_machine_instance(sm) + ';\n')
+
+        self.fd.write('\nprivate: // Data event members\n\n')
+        for event, arcs in self.current.lookup_events.items():
+            for arg in event.params:
+                self.indent(1), self.fd.write('//!< Data for event ' + event.name + '\n')
+                self.indent(1), self.fd.write(arg.upper() + ' ' + arg + ';\n')
+
+        self.fd.write('\nprivate: // Client code\n\n')
+        self.fd.write(self.current.extra_code.code)
+        self.fd.write('\nprivate:\n')
+        self.indent(1), self.fd.write(self.variant_state_alias() + ' m_state;\n')
+        self.indent(1), self.fd.write('bool  m_enabled = false;\n')
+        self.fd.write('};\n\n')
+
+    def generate_variant_c_str_definition(self):
+        self.generate_method_comment('Return the current state as a C string.')
+        self.fd.write('const char* ' + self.current.class_name + '::c_str() const\n')
+        self.fd.write('{\n')
+        self.indent(1), self.fd.write('return std::visit(fsm::overloaded{\n')
+        for state in list(self.current.graph.nodes):
+            if state in ['[*]', '*']:
+                continue
+            name = self.state_name(state)
+            self.indent(2), self.fd.write('[](' + name + ' const&) { return "' + state + '"; },\n')
+        self.indent(1), self.fd.write('}, m_state);\n')
+        self.fd.write('}\n\n')
+
+    def generate_variant_enter_method_definition(self):
+        self.generate_method_comment('Reset the FSM to its initial state.')
+        self.fd.write('void ' + self.current.class_name + '::enter()\n')
+        self.fd.write('{\n')
+        self.indent(1), self.fd.write('m_enabled = true;\n')
+        if self.current.extra_code.init != '':
+            self.fd.write(self.current.extra_code.init)
+        neighbors = [n for n in list(self.current.graph.neighbors('[*]')) if n not in ['[*]', '*']]
+        if len(neighbors) == 1:
+            dest = neighbors[0]
+            dest_name = self.state_name(dest)
+            tr = self.current.graph['[*]'][dest]['data']
+            if tr.guard != '':
+                self.indent(1), self.fd.write('if (' + self.guard_function('[*]', dest) + '())\n')
+                self.indent(1), self.fd.write('{\n')
+                self.indent(2), self.fd.write('m_state = ' + dest_name + '{};\n')
+                dest_data = self.current.graph.nodes[dest]['data']
+                if dest_data.entering != '':
+                    self.indent(2), self.fd.write(self.state_entering_function(dest) + '();\n')
+                self._emit_variant_noevents(dest, 2)
+                self.indent(1), self.fd.write('}\n')
+            else:
+                self.indent(1), self.fd.write('m_state = ' + dest_name + '{};\n')
+                dest_data = self.current.graph.nodes[dest]['data']
+                if dest_data.entering != '':
+                    self.indent(1), self.fd.write(self.state_entering_function(dest) + '();\n')
+                self._emit_variant_noevents(dest, 1)
+        else:
+            for dest in neighbors:
+                tr = self.current.graph['[*]'][dest]['data']
+                dest_name = self.state_name(dest)
+                if tr.guard != '':
+                    self.indent(1), self.fd.write('if (' + self.guard_function('[*]', dest) + '())\n')
+                    self.indent(1), self.fd.write('{\n')
+                    self.indent(2), self.fd.write('m_state = ' + dest_name + '{};\n')
+                    dest_data = self.current.graph.nodes[dest]['data']
+                    if dest_data.entering != '':
+                        self.indent(2), self.fd.write(self.state_entering_function(dest) + '();\n')
+                    self._emit_variant_noevents(dest, 2)
+                    self.indent(2), self.fd.write('return;\n')
+                    self.indent(1), self.fd.write('}\n')
+                else:
+                    self.indent(1), self.fd.write('m_state = ' + dest_name + '{};\n')
+                    dest_data = self.current.graph.nodes[dest]['data']
+                    if dest_data.entering != '':
+                        self.indent(1), self.fd.write(self.state_entering_function(dest) + '();\n')
+                    self._emit_variant_noevents(dest, 1)
+        self.fd.write('}\n\n')
+
+    def generate_variant_event_method_definitions(self):
+        for (sm, e) in self.current.broadcasts:
+            self.generate_method_comment('Broadcast external event.')
+            self.fd.write(e.header(name=self.current.class_name + '::' + e.name) + '\n')
+            self.fd.write('{ ' + self.child_machine_instance(sm) + '.' + e.caller() + '; }\n\n')
+
+        for event, arcs in self.current.lookup_events.items():
+            if event.name == '':
+                continue
+            self.generate_method_comment('External event.')
+            self.fd.write(event.header(name=self.current.class_name + '::' + event.name) + '\n')
+            self.fd.write('{\n')
+            for arg in event.params:
+                self.indent(1), self.fd.write(arg + ' = ' + arg + '_;\n')
+            if event.params:
+                self.fd.write('\n')
+            self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][EVENT %s]\\n", __func__);\n\n')
+            self.indent(1), self.fd.write('std::visit(fsm::overloaded{\n')
+            for origin, destination in arcs:
+                if origin in ['[*]', '*']:
+                    continue
+                tr = self.current.graph[origin][destination]['data']
+                origin_name = self.state_name(origin)
+                dest_name = self.state_name(destination)
+                self.indent(2), self.fd.write('[this](' + origin_name + '&)\n')
+                self.indent(2), self.fd.write('{\n')
+                if tr.guard != '':
+                    self.indent(3), self.fd.write('if (!' + self.guard_function(origin, destination) + '())\n')
+                    self.indent(4), self.fd.write('return;\n')
+                if origin == destination:
+                    if tr.action != '':
+                        self.indent(3), self.fd.write(self.transition_function(origin, destination) + '();\n')
+                else:
+                    origin_data = self.current.graph.nodes[origin]['data']
+                    if origin_data.leaving != '':
+                        self.indent(3), self.fd.write(self.state_leaving_function(origin) + '();\n')
+                    if tr.action != '':
+                        self.indent(3), self.fd.write(self.transition_function(origin, destination) + '();\n')
+                    self.indent(3), self.fd.write('m_state = ' + dest_name + '{};\n')
+                    dest_data = self.current.graph.nodes[destination]['data']
+                    if dest_data.entering != '':
+                        self.indent(3), self.fd.write(self.state_entering_function(destination) + '();\n')
+                    self._emit_variant_noevents(destination, 3)
+                self.indent(2), self.fd.write('},\n')
+            self.indent(2), self.fd.write('[](auto&) { /* ignore */ }\n')
+            self.indent(1), self.fd.write('}, m_state);\n')
+            self.fd.write('}\n\n')
+
+    def generate_variant_transition_method_definitions(self):
+        transitions = list(self.current.graph.edges)
+        for origin, destination in transitions:
+            tr = self.current.graph[origin][destination]['data']
+            if tr.guard != '':
+                self.generate_method_comment('Guard the transition from state ' + origin + ' to state ' + destination + '.')
+                self.fd.write('MOCKABLE bool ' + self.current.class_name + '::' + self.guard_function(origin, destination) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('const bool guard = (' + tr.guard + ');\n')
+                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][GUARD ' + origin + ' --> ' + destination + ': ' + tr.guard + '] result: %s\\n",\n')
+                self.indent(2), self.fd.write('(guard ? "true" : "false"));\n')
+                self.indent(1), self.fd.write('return guard;\n')
+                self.fd.write('}\n\n')
+            if tr.action != '':
+                self.generate_method_comment('Do the action when transitioning from state ' + origin + ' to state ' + destination + '.')
+                self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.transition_function(origin, destination) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][TRANSITION ' + origin + ' --> ' + destination)
+                if tr.action[0:2] != '//':
+                    self.fd.write(': ' + tr.action + ']\\n");\n')
+                else:
+                    self.fd.write(']\\n");\n')
+                self.indent(1), self.fd.write(tr.action + ';\n')
+                self.fd.write('}\n\n')
+
+    def generate_variant_state_method_definitions(self):
+        for node in list(self.current.graph.nodes):
+            state = self.current.graph.nodes[node]['data']
+            if state.entering != '':
+                self.generate_method_comment('Action on entering state ' + state.name + '.')
+                self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_entering_function(node, False) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
+                self.fd.write(state.entering)
+                self.fd.write('}\n\n')
+            if state.leaving != '':
+                self.generate_method_comment('Action on leaving state ' + state.name + '.')
+                self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_leaving_function(node, False) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
+                self.fd.write(state.leaving)
+                self.fd.write('}\n\n')
+
+    def generate_variant_state_machine_definitions(self):
+        self.generate_method_comment('Constructor. Calls enter() to set the initial state.')
+        self.fd.write(self.current.class_name + '::' + self.current.class_name + '(' + self.current.extra_code.argvs + ')\n')
+        if self.current.extra_code.cons != '':
+            cons = self.current.extra_code.cons.strip().lstrip(',').strip()
+            self.indent(1), self.fd.write(': ' + cons + '\n')
+        self.fd.write('{\n')
+        self.indent(1), self.fd.write('enter();\n')
+        self.fd.write('}\n\n')
+
+        self.fd.write('#if defined(MOCKABLE)\n')
+        self.generate_method_comment('Virtual destructor (needed when MOCKABLE=virtual).')
+        self.fd.write(self.current.class_name + '::~' + self.current.class_name + '() = default;\n')
+        self.fd.write('#endif\n\n')
+
+        self.generate_variant_enter_method_definition()
+
+        self.fd.write('void ' + self.current.class_name + '::exit()\n{\n')
+        self.indent(1), self.fd.write('m_enabled = false;\n')
+        self.fd.write('}\n\n')
+
+        self.fd.write('bool ' + self.current.class_name + '::isActive() const\n{\n')
+        self.indent(1), self.fd.write('return m_enabled;\n')
+        self.fd.write('}\n\n')
+
+        self.generate_variant_c_str_definition()
+        self.generate_variant_event_method_definitions()
+        self.generate_variant_transition_method_definitions()
+        self.generate_variant_state_method_definitions()
+
+    def generate_variant_state_machine_split(self, hpp_target, cpp_target):
+        self.fd = open(hpp_target, 'w')
+        self.generate_variant_header(True)
+        self.generate_namespace_begin()
+        self.generate_variant_state_structs()
+        self.generate_variant_state_machine_class_declaration()
+        self.generate_namespace_end()
+        self.generate_footer(True)
+        self.fd.close()
+
+        self.fd = open(cpp_target, 'w')
+        self.generate_common_header()
+        self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
+        self.fd.write('\n')
+        self.generate_namespace_begin()
+        self.generate_variant_state_machine_definitions()
+        self.generate_namespace_end()
+        self.fd.close()
+
     def _state_is_check(self, state):
         """Return C++ expression: fsm.is<StateName>()."""
         return 'fsm.is<' + self.namespace_qualified(self.state_name(state)) + '>()'
@@ -1910,12 +2393,9 @@ class Parser(object):
             if cxxfile == 'cpp':
                 hpp_name = self.current.class_name + '.hpp'
                 hpp_target = os.path.join(self.output_dir, hpp_name)
-                self.generate_variant_state_machine(hpp_target)
                 cpp_name = self.current.class_name + '.cpp'
                 cpp_target = os.path.join(self.output_dir, cpp_name)
-                with open(cpp_target, 'w') as fd:
-                    fd.write('// Split C++20 mode: implementation unit includes generated header.\n')
-                    fd.write('#include "' + hpp_name + '"\n')
+                self.generate_variant_state_machine_split(hpp_target, cpp_target)
                 self.generate_variant_unit_tests(hpp_target, files, separated)
             else:
                 filename = self.current.class_name + '.' + cxxfile
@@ -2283,7 +2763,8 @@ def usage():
     print('Command line: ' + sys.argv[0] + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>]')
     print('Where:')
     print('   <plantuml file>: the path of a plantuml statechart')
-    print('   "cpp"/"hpp"    : generate C++11 class-based state machine (inherits StateMachine<>)')
+    print('   "cpp"           : generate C++11 split output (.hpp + .cpp include unit)')
+    print('   "hpp"           : generate C++11 class-based header (single-file mode)')
     print('   "hpp20"         : generate C++20 std::variant/std::visit state machine (self-contained header)')
     print('   "cpp20"         : generate C++20 std::variant/std::visit split output (.hpp + .cpp stub)')
     print('   [postfix]: is an optional postfix to extend the name of the state machine class')
@@ -2293,7 +2774,7 @@ def usage():
     print('   [-n|--namespace <namespace>]: optional C++ namespace for generated class')
     print('Example:')
     print('   sys.argv[1] foo.plantuml cpp Bar')
-    print('Will create a foo_bar.cpp file with a state machine name foo_bar (default snake_case)')
+    print('Will create foo_bar.hpp and foo_bar.cpp with a state machine name foo_bar (default snake_case)')
     print('   sys.argv[1] foo.plantuml hpp20 Bar -o ../build/generated')
     print('Will create generated files in ../build/generated')
     sys.exit(-1)
