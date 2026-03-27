@@ -176,6 +176,22 @@ g++ --std=c++20 -Wall -Wextra -Iinclude -I. \
   -o FooControllerTests
 ```
 
+## Runtime compile-time macros
+
+The runtime headers support the following optional macros:
+
+- `FSM_DEBUG`: enables runtime trace logging through `FSM_LOG(...)` in both
+  [include/state_machine.hpp](include/state_machine.hpp) and
+  [include/state_machine_variant.hpp](include/state_machine_variant.hpp).
+- `FSM_THREAD_SAFETY`: enables mutex-protected transition handling in
+  [include/state_machine.hpp](include/state_machine.hpp).
+
+Example:
+
+```bash
+g++ --std=c++14 -DFSM_DEBUG -DFSM_THREAD_SAFETY -Iinclude ...
+```
+
 ## Compile Examples
 
 ```

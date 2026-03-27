@@ -31,10 +31,14 @@
 #ifndef STATE_MACHINE_HPP
 #define STATE_MACHINE_HPP
 
+#include <array>
 #include <cassert>
 #include <map>
 #include <queue>
 #include <stdlib.h>
+#if defined(FSM_THREAD_SAFETY)
+#include <mutex>
+#endif
 
 
 //-----------------------------------------------------------------------------
@@ -185,7 +189,7 @@ public:
 
     //! \brief Define the type of container holding all stated of the state
     //! machine.
-    using states = state[int(STATES_ID::MAX_STATES)];
+    using states = std::array<state, static_cast<int>(STATES_ID::MAX_STATES)>;
     //! \brief Define the type of container holding states transitions. Since
     //! a state machine is generally a sparse matrix we use red-back tree.
     using transitions = std::map<STATES_ID, transition>;
@@ -208,7 +212,7 @@ public:
     //--------------------------------------------------------------------------
     //! \brief Restore the state machin to its initial state.
     //--------------------------------------------------------------------------
-    inline void enter()
+    void enter()
     {
         FSM_LOG("[STATE MACHINE] Restart the state machine\n");
         m_current_state = m_initial_state;
@@ -220,22 +224,22 @@ public:
     //--------------------------------------------------------------------------
     //! \brief Return the current state.
     //--------------------------------------------------------------------------
-    inline void exit()
+    void exit()
     {
         m_enabled = false;
     }
 
-    inline void start()
+    void start()
     {
         enter();
     }
 
-    inline void stop()
+    void stop()
     {
         exit();
     }
 
-    inline void reset()
+    void reset()
     {
         enter();
     }
@@ -243,7 +247,7 @@ public:
     //--------------------------------------------------------------------------
     //! \brief Return the current state.
     //--------------------------------------------------------------------------
-    inline STATES_ID state() const
+    STATES_ID state() const
     {
         return m_current_state;
     }
@@ -251,7 +255,7 @@ public:
     //--------------------------------------------------------------------------
     //! \brief Return the current state as string (shall not be free'ed).
     //--------------------------------------------------------------------------
-    inline const char* c_str() const
+    const char* c_str() const
     {
         return m_enabled ? stringify(m_current_state) : "--";
     }
@@ -261,7 +265,7 @@ public:
     //! event. This will call the guard, leaving actions, entering actions ...
     //! \param[in] transitions the table of transitions.
     //--------------------------------------------------------------------------
-    inline void transition(transitions const& transitions)
+    void transition(transitions const& transitions)
     {
         if (!m_enabled)
             return;
@@ -305,15 +309,20 @@ private:
     bool m_enabled = false;
 
 public:
-    inline bool is_active() const
+    bool is_active() const
     {
         return m_enabled;
     }
 
-    inline bool isActive() const
+    bool isActive() const
     {
         return is_active();
     }
+
+#if defined(FSM_THREAD_SAFETY)
+private:
+    std::mutex m_mutex;
+#endif
 };
 
 template <typename FSM, class STATES_ID>
@@ -334,34 +343,39 @@ public:
     using typename state_machine<FSM, STATES_ID>::States;
     using typename state_machine<FSM, STATES_ID>::Transitions;
 
-    inline void enter()
+    void enter()
     {
         state_machine<FSM, STATES_ID>::enter();
     }
 
-    inline void exit()
+    void exit()
     {
         state_machine<FSM, STATES_ID>::exit();
     }
 
-    inline void start()
+    void start()
     {
         state_machine<FSM, STATES_ID>::start();
     }
 
-    inline void stop()
+    void stop()
     {
         state_machine<FSM, STATES_ID>::stop();
     }
 
-    inline void reset()
+    void reset()
     {
         state_machine<FSM, STATES_ID>::reset();
     }
 
-    inline bool isActive() const
+    bool isActive() const
     {
         return state_machine<FSM, STATES_ID>::isActive();
+    }
+
+    bool is_active() const
+    {
+        return state_machine<FSM, STATES_ID>::is_active();
     }
 };
 
@@ -380,11 +394,9 @@ namespace fsm
 template <class FSM, class STATES_ID>
 void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATES_ID>::Transition const* tr)
 {
-#if defined(THREAD_SAFETY)
-    // If try_lock failed it is not important: it just means that we have called
-    // an internal event from this method and internal states are still
-    // protected.
-    m_mutex.try_lock();
+#if defined(FSM_THREAD_SAFETY)
+    // Recursive/internal calls won't own the lock, which is expected.
+    std::unique_lock<std::mutex> lock(m_mutex, std::try_to_lock);
 #endif
 
     // Reaction from internal event (therefore coming from this method called by
@@ -422,7 +434,8 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
         else if (current_transition->destination == STATES_ID::IGNORING_EVENT)
         {
             FSM_LOG("[STATE MACHINE] Ignoring external event\n");
-            return;
+            m_nesting.pop();
+            break;
         }
 
         // Unknown state: kill the system
@@ -433,8 +446,10 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
         }
 
         // Reaction: call the member function associated to the current state
-        typename state_machine<FSM, STATES_ID>::State const& cst = m_states[int(m_current_state)];
-        typename state_machine<FSM, STATES_ID>::State const& nst = m_states[int(current_transition->destination)];
+        typename state_machine<FSM, STATES_ID>::State const& cst =
+            m_states[static_cast<int>(m_current_state)];
+        typename state_machine<FSM, STATES_ID>::State const& nst =
+            m_states[static_cast<int>(current_transition->destination)];
 
         // Call the guard
         bool guard_res = (current_transition->guard == nullptr);
@@ -506,10 +521,6 @@ void state_machine<FSM, STATES_ID>::transition(typename state_machine<FSM, STATE
 
         m_nesting.pop();
     } while (!m_nesting.empty());
-
-#if defined(THREAD_SAFETY)
-    m_mutex.unlock();
-#endif
 }
 
 #endif // STATE_MACHINE_HPP

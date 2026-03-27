@@ -38,6 +38,8 @@
 #include <cstdio>
 #include <cstring>
 #include <optional>
+#include <type_traits>
+#include <utility>
 #include <variant>
 
 //-----------------------------------------------------------------------------
@@ -69,11 +71,23 @@ namespace fsm
     struct overloaded : Ts...
     {
         using Ts::operator()...;
+
+        constexpr explicit overloaded(Ts... ts) noexcept((std::is_nothrow_move_constructible_v<Ts> && ...))
+            : Ts(std::move(ts))...
+        {
+        }
     };
 
     // Deduction guide — required in C++17, optional but harmless in C++20.
     template <typename... Ts>
     overloaded(Ts...) -> overloaded<Ts...>;
+
+    template <typename... Ts>
+    constexpr auto make_overloaded(Ts&&... ts) noexcept((std::is_nothrow_constructible_v<std::decay_t<Ts>, Ts> && ...))
+        -> overloaded<std::decay_t<Ts>...>
+    {
+        return overloaded<std::decay_t<Ts>...>{std::forward<Ts>(ts)...};
+    }
 
 } // namespace fsm
 
