@@ -2,3 +2,6 @@
 examples/build
 
 .vscode/
+
+tmp_gen_*
+tmp_test_*

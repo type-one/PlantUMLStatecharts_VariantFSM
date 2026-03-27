@@ -221,6 +221,53 @@ g++ --std=c++20 -Wall -Wextra -DFSM_THREAD_SAFETY -pthread \
 On Linux and other POSIX platforms, `-pthread` is typically required when
 `FSM_THREAD_SAFETY` is enabled.
 
+## Style and lint compliance (.clang-format / .clang-tidy)
+
+This repository now supports three complementary workflows:
+
+1. Format/check template source files maintained in the repo.
+2. Format/check generated C++ files directly from the generator CLI.
+3. Run `clang-tidy` on generated code using a compile database.
+
+Format template input files (headers/sources under `include/`, `examples/`, `translator/`):
+
+```bash
+bash tools/format_templates.sh
+```
+
+Check template input files in CI (fails on style drift):
+
+```bash
+bash tools/check_templates_format.sh
+```
+
+Format generated C++ files immediately after generation:
+
+```bash
+./translator/statecharts.py path/to/foo.plantuml cpp20 controller -o build/generated --clang-format
+```
+
+Check generated C++ files formatting without modifying them:
+
+```bash
+./translator/statecharts.py path/to/foo.plantuml cpp20 controller -o build/generated --check-clang-format
+```
+
+Run `clang-tidy` on generated code:
+
+- `clang-tidy` needs a `compile_commands.json` compile database.
+- You can produce one with your normal build system (CMake), or with `bear` for Make-based builds.
+
+Example with `bear`:
+
+```bash
+bear --output build/compile_commands.json -- make -C examples -j8
+clang-tidy -p build/compile_commands.json build/generated/foo_controller.cpp
+clang-tidy -p build/compile_commands.json build/generated/foo_controller.hpp
+```
+
+Tip: because `.clang-tidy` has `WarningsAsErrors: "*"`, running tidy in CI is a good gate for both template and generated code quality.
+
 ## Compile Examples
 
 ```

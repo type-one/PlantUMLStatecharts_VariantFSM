@@ -49,11 +49,11 @@
 //! \brief Verbosity activated when compiled with -DFSM_DEBUG.
 //-----------------------------------------------------------------------------
 #if defined(FSM_DEBUG)
-#define FSM_LOG printf
+#define FSM_LOGD std::printf // NOLINT(cppcoreguidelines-macro-usage)
 #else
-#define FSM_LOG(...)
+#define FSM_LOGD(...) // NOLINT(cppcoreguidelines-macro-usage)
 #endif
-#define LOGE printf
+#define FSM_LOGE(...) std::fprintf(stderr, __VA_ARGS__) // NOLINT(cppcoreguidelines-macro-usage)
 
 namespace fsm
 {

@@ -29,6 +29,8 @@ from datetime import date
 from lark import Lark, Transformer
 
 import sys, os, re, itertools
+import shutil
+import subprocess
 import networkx as nx
 
 
@@ -694,6 +696,11 @@ class Parser(object):
             self.generate_include(indent, '"', 'state_machine.hpp', '"')
         for w in self.current.warnings:
             self.fd.write('\n#warning "' + w + '"\n')
+        if hpp:
+            self.fd.write('// Provide a default empty MOCKABLE for non-testing builds.\n')
+            self.fd.write('#ifndef MOCKABLE\n')
+            self.fd.write('#  define MOCKABLE\n')
+            self.fd.write('#endif\n')
         self.fd.write(self.current.extra_code.header)
         self.fd.write('\n')
 
@@ -720,7 +727,7 @@ class Parser(object):
                 self.fd.write(' //!< ' + comment)
             self.fd.write('\n')
         self.indent(1), self.fd.write('// Mandatory internal states:\n')
-        self.indent(1), self.fd.write(self.fmt_name('IGNORING_EVENT') + ', ' + self.fmt_name('CANNOT_HAPPEN') + ', ' + self.fmt_name('MAX_STATES') + '\n')
+        self.indent(1), self.fd.write('IGNORING_EVENT, CANNOT_HAPPEN, MAX_STATES\n')
         self.fd.write('};\n\n')
 
     ###########################################################################
@@ -921,11 +928,9 @@ class Parser(object):
     ### Generate the code of the state machine destructor method.
     ###########################################################################
     def generate_destructor_method(self):
-        self.fd.write('#if defined(MOCKABLE)\n')
-        self.generate_method_comment('Needed because of virtual methods.')
+        self.generate_method_comment('Needed because of virtual methods (define MOCKABLE=virtual to enable GMock).')
         self.indent(1)
-        self.fd.write('virtual ~' + self.current.class_name + '() = default;\n')
-        self.fd.write('#endif\n\n')
+        self.fd.write('MOCKABLE ~' + self.current.class_name + '() = default;\n\n')
 
     ###########################################################################
     ### Generate the state machine initial entering method.
@@ -989,7 +994,7 @@ class Parser(object):
             self.indent(1), self.fd.write(event.header() + '\n')
             self.indent(1), self.fd.write('{\n')
             # Display data event
-            self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][EVENT %s]')
+            self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][EVENT %s]')
             if len(event.params) != 0:
                 self.fd.write(' with params XXX') # FIXME a finir
             self.fd.write('\\n", __func__);\n\n')
@@ -1028,7 +1033,7 @@ class Parser(object):
                 self.indent(1), self.fd.write('MOCKABLE bool ' + self.guard_function(origin, destination) + '()\n')
                 self.indent(1), self.fd.write('{\n')
                 self.indent(2), self.fd.write('const bool guard = (' + tr.guard + ');\n')
-                self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][GUARD ' + origin + ' --> ' + destination + ': ' + tr.guard + '] result: %s\\n",\n')
+                self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][GUARD ' + origin + ' --> ' + destination + ': ' + tr.guard + '] result: %s\\n",\n')
                 self.indent(3), self.fd.write('(guard ? "true" : "false"));\n')
                 self.indent(2), self.fd.write('return guard;\n')
                 self.indent(1), self.fd.write('}\n\n')
@@ -1036,7 +1041,7 @@ class Parser(object):
                 self.generate_method_comment('Do the action when transitioning from state ' + origin + ' to state ' + destination + '.')
                 self.indent(1), self.fd.write('MOCKABLE void ' + self.transition_function(origin, destination) + '()\n')
                 self.indent(1), self.fd.write('{\n')
-                self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][TRANSITION ' + origin + ' --> ' + destination)
+                self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][TRANSITION ' + origin + ' --> ' + destination)
                 if tr.action[0:2] != '//':
                     self.fd.write(': ' + tr.action + ']\\n");\n')
                 else: # Cannot display action since contains comment + warnings
@@ -1055,14 +1060,14 @@ class Parser(object):
                 self.generate_method_comment('Do the action when entering the state ' + state.name + '.')
                 self.indent(1), self.fd.write('MOCKABLE void ' + self.state_entering_function(node, False) + '()\n')
                 self.indent(1), self.fd.write('{\n')
-                self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
+                self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
                 self.fd.write(state.entering)
                 self.indent(1), self.fd.write('}\n\n')
             if state.leaving != '':
                 self.generate_method_comment('Do the action when leaving the state ' + state.name + '.')
                 self.indent(1), self.fd.write('MOCKABLE void ' + self.state_leaving_function(node, False) + '()\n')
                 self.indent(1), self.fd.write('{\n')
-                self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
+                self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
                 self.fd.write(state.leaving)
                 self.indent(1), self.fd.write('}\n\n')
             if state.internal != '':
@@ -1072,7 +1077,7 @@ class Parser(object):
                 self.generate_method_comment('Do the internal transition when leaving the state ' + state.name + '.')
                 self.indent(1), self.fd.write('void ' + self.state_internal_function(node, False) + '()\n')
                 self.indent(1), self.fd.write('{\n')
-                self.indent(2), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][INTERNAL TRANSITION FROM STATE ' + node + ']\\n");\n')
+                self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][INTERNAL TRANSITION FROM STATE ' + node + ']\\n");\n')
                 self.fd.write(state.internal)
                 self.indent(1), self.fd.write('}\n\n')
 
@@ -1227,7 +1232,7 @@ class Parser(object):
             self.generate_method_comment('External event.')
             self.fd.write(event.header(name=self.current.class_name + '::' + event.name) + '\n')
             self.fd.write('{\n')
-            self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][EVENT %s]')
+            self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][EVENT %s]')
             if len(event.params) != 0:
                 self.fd.write(' with params XXX')
             self.fd.write('\\n", __func__);\n\n')
@@ -1260,7 +1265,7 @@ class Parser(object):
                 self.fd.write('MOCKABLE bool ' + self.current.class_name + '::' + self.guard_function(origin, destination) + '()\n')
                 self.fd.write('{\n')
                 self.indent(1), self.fd.write('const bool guard = (' + tr.guard + ');\n')
-                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][GUARD ' + origin + ' --> ' + destination + ': ' + tr.guard + '] result: %s\\n",\n')
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][GUARD ' + origin + ' --> ' + destination + ': ' + tr.guard + '] result: %s\\n",\n')
                 self.indent(2), self.fd.write('(guard ? "true" : "false"));\n')
                 self.indent(1), self.fd.write('return guard;\n')
                 self.fd.write('}\n\n')
@@ -1268,7 +1273,7 @@ class Parser(object):
                 self.generate_method_comment('Do the action when transitioning from state ' + origin + ' to state ' + destination + '.')
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.transition_function(origin, destination) + '()\n')
                 self.fd.write('{\n')
-                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][TRANSITION ' + origin + ' --> ' + destination)
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][TRANSITION ' + origin + ' --> ' + destination)
                 if tr.action[0:2] != '//':
                     self.fd.write(': ' + tr.action + ']\\n");\n')
                 else:
@@ -1283,14 +1288,14 @@ class Parser(object):
                 self.generate_method_comment('Do the action when entering the state ' + state.name + '.')
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_entering_function(node, False) + '()\n')
                 self.fd.write('{\n')
-                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
                 self.fd.write(state.entering)
                 self.fd.write('}\n\n')
             if state.leaving != '':
                 self.generate_method_comment('Do the action when leaving the state ' + state.name + '.')
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_leaving_function(node, False) + '()\n')
                 self.fd.write('{\n')
-                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
                 self.fd.write(state.leaving)
                 self.fd.write('}\n\n')
             if state.internal != '':
@@ -1299,7 +1304,7 @@ class Parser(object):
                 self.generate_method_comment('Do the internal transition when leaving the state ' + state.name + '.')
                 self.fd.write('void ' + self.current.class_name + '::' + self.state_internal_function(node, False) + '()\n')
                 self.fd.write('{\n')
-                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][INTERNAL TRANSITION FROM STATE ' + node + ']\\n");\n')
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][INTERNAL TRANSITION FROM STATE ' + node + ']\\n");\n')
                 self.fd.write(state.internal)
                 self.fd.write('}\n\n')
 
@@ -1415,7 +1420,7 @@ class Parser(object):
                     self.fd.write('.WillRepeatedly(::testing::Return(false));\n')
                 else:
                     self.fd.write('.WillRepeatedly(::testing::Invoke([](){')
-                    self.fd.write(' FSM_LOG("' + self.cleaning_code(tr.guard) + '\\n");')
+                    self.fd.write(' FSM_LOGD("' + self.cleaning_code(tr.guard) + '\\n");')
                     self.fd.write(' return true; }));\n')
             if tr.action != '':
                 self.indent(1)
@@ -1423,7 +1428,7 @@ class Parser(object):
                 self.fd.write('.Times(' + str(tr.count_action) + ')')
                 if tr.count_action >= 1:
                     self.fd.write('.WillRepeatedly(::testing::Invoke([](){')
-                    self.fd.write(' FSM_LOG("' + self.cleaning_code(tr.action) + '\\n");')
+                    self.fd.write(' FSM_LOGD("' + self.cleaning_code(tr.action) + '\\n");')
                     self.fd.write(' }))')
                 self.fd.write(';\n')
         nodes = list(self.current.graph.nodes)
@@ -1435,7 +1440,7 @@ class Parser(object):
                 self.fd.write('.Times(' + str(state.count_entering) + ')')
                 if state.count_entering >= 1:
                     self.fd.write('.WillRepeatedly(::testing::Invoke([](){')
-                    self.fd.write(' FSM_LOG("' + self.cleaning_code(state.entering) + '\\n");')
+                    self.fd.write(' FSM_LOGD("' + self.cleaning_code(state.entering) + '\\n");')
                     self.fd.write(' }))')
                 self.fd.write(';\n')
             if state.leaving != '':
@@ -1444,7 +1449,7 @@ class Parser(object):
                 self.fd.write('.Times(' + str(state.count_leaving) + ')')
                 if state.count_leaving >= 1:
                     self.fd.write('.WillRepeatedly(::testing::Invoke([](){')
-                    self.fd.write(' FSM_LOG("' + self.cleaning_code(state.leaving) + '\\n");')
+                    self.fd.write(' FSM_LOGD("' + self.cleaning_code(state.leaving) + '\\n");')
                     self.fd.write(' }))')
                 self.fd.write(';\n')
 
@@ -1471,9 +1476,9 @@ class Parser(object):
     def generate_unit_tests_check_initial_state(self):
         self.generate_line_separator(0, ' ', 80, '-')
         self.fd.write('TEST(' + self.test_suite_name() + ', TestInitialSate)\n{\n')
-        self.indent(1), self.fd.write('FSM_LOG("===============================================\\n");\n')
-        self.indent(1), self.fd.write('FSM_LOG("Check initial state after constructor or reset.\\n");\n')
-        self.indent(1), self.fd.write('FSM_LOG("===============================================\\n");\n')
+        self.indent(1), self.fd.write('FSM_LOGD("===============================================\\n");\n')
+        self.indent(1), self.fd.write('FSM_LOGD("Check initial state after constructor or reset.\\n");\n')
+        self.indent(1), self.fd.write('FSM_LOGD("===============================================\\n");\n')
         self.indent(1), self.fd.write(self.test_class_name() + ' fsm; // Not mocked !\n')
         self.indent(1), self.fd.write('fsm.enter();\n\n')
         self.generate_unit_tests_assertions_initial_state()
@@ -1490,19 +1495,19 @@ class Parser(object):
             self.fd.write('TEST(' + self.test_suite_name() + ', TestCycle' + str(count) + ')\n{\n')
             count += 1
             # Print the cycle
-            self.indent(1), self.fd.write('FSM_LOG("===========================================\\n");\n')
-            self.indent(1), self.fd.write('FSM_LOG("Check cycle: [*]')
+            self.indent(1), self.fd.write('FSM_LOGD("===========================================\\n");\n')
+            self.indent(1), self.fd.write('FSM_LOGD("Check cycle: [*]')
             for c in cycle:
                 self.fd.write(' ' + c)
             self.fd.write('\\n");\n')
-            self.indent(1), self.fd.write('FSM_LOG("===========================================\\n");\n')
+            self.indent(1), self.fd.write('FSM_LOGD("===========================================\\n");\n')
 
             # Reset the state machine and print the guard supposed to reach this state
             self.indent(1), self.fd.write(self.mock_class_name() + ' ' + 'fsm;\n')
             self.generate_mocked_guards(['[*]'] + cycle)
             self.fd.write('\n'), self.indent(1), self.fd.write('fsm.enter();\n')
             guard = self.current.graph[self.current.initial_state][cycle[0]]['data'].guard
-            self.indent(1), self.fd.write('FSM_LOG("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
+            self.indent(1), self.fd.write('FSM_LOGD("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
             self.indent(1), self.fd.write('ASSERT_EQ(fsm.state(), ' + self.state_enum_for_tests(cycle[0]) + ');\n')
             self.indent(1), self.fd.write('ASSERT_STREQ(fsm.c_str(), "' + cycle[0] + '");\n')
 
@@ -1513,12 +1518,12 @@ class Parser(object):
 #                if self.current.graph.has_edge(cycle[i], cycle[i]) and (cycle[i] != cycle[i+1]):
 #                    tr = self.current.graph[cycle[i]][cycle[i]]['data']
 #                    if tr.event.name != '':
-#                        self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + ']// Event ' + tr.event.name + ' [' + tr.guard + ']: ' + cycle[i] + ' <--> ' + cycle[i] + '\\n");\n')
+#                        self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + ']// Event ' + tr.event.name + ' [' + tr.guard + ']: ' + cycle[i] + ' <--> ' + cycle[i] + '\\n");\n')
 #                        self.indent(1), self.fd.write('fsm.' + tr.event.caller('fsm') + ';')
 #                        if tr.guard != '':
 #                            self.fd.write(' // If ' + tr.guard)
 #                        self.fd.write('\n')
-#                        self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '] Current state: %s\\n", fsm.c_str());\n')
+#                        self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '] Current state: %s\\n", fsm.c_str());\n')
 #                        self.indent(1), self.fd.write('ASSERT_EQ(fsm.state(), ' + self.state_enum(cycle[i]) + ');\n')
 #                        self.indent(1), self.fd.write('ASSERT_STREQ(fsm.c_str(), "' + cycle[i] + '");\n')
 
@@ -1526,7 +1531,7 @@ class Parser(object):
                 tr = self.current.graph[cycle[i]][cycle[i+1]]['data']
                 if tr.event.name != '':
                     self.fd.write('\n'), self.indent(1)
-                    self.fd.write('FSM_LOG("\\n[' + self.current.class_name.upper() + '] Triggering event ' + tr.event.name + ' [' + tr.guard + ']: ' + cycle[i] + ' ==> ' + cycle[i + 1] + '\\n");\n')
+                    self.fd.write('FSM_LOGD("\\n[' + self.current.class_name.upper() + '] Triggering event ' + tr.event.name + ' [' + tr.guard + ']: ' + cycle[i] + ' ==> ' + cycle[i + 1] + '\\n");\n')
                     self.indent(1), self.fd.write('fsm.' + tr.event.caller('fsm') + ';\n')
 
                 if (i == len(cycle) - 2):
@@ -1536,14 +1541,14 @@ class Parser(object):
                         self.indent(1), self.fd.write('\n#warning "Malformed state machine: unreachable destination state"\n')
                     else:
                         # No explicit event => direct internal transition to the state if an explicit event can occures.
-                        self.indent(1), self.fd.write('FSM_LOG("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
+                        self.indent(1), self.fd.write('FSM_LOGD("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
                         self.indent(1), self.fd.write('ASSERT_EQ(fsm.state(), ' + self.state_enum_for_tests(cycle[i+1]) + ');\n')
                         self.indent(1), self.fd.write('ASSERT_STREQ(fsm.c_str(), "' + cycle[i+1] + '");\n')
 
                 # No explicit event => direct internal transition to the state if an explicit event can occures.
                 # Else skip test for the destination state since we cannot test its internal state
                 elif self.current.graph[cycle[i+1]][cycle[i+2]]['data'].event.name != '':
-                    self.indent(1), self.fd.write('FSM_LOG("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
+                    self.indent(1), self.fd.write('FSM_LOGD("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
                     self.indent(1), self.fd.write('ASSERT_EQ(fsm.state(), ' + self.state_enum_for_tests(cycle[i+1]) + ');\n')
                     self.indent(1), self.fd.write('ASSERT_STREQ(fsm.c_str(), "' + cycle[i+1] + '");\n')
             self.fd.write('}\n\n')
@@ -1559,12 +1564,12 @@ class Parser(object):
             self.fd.write('TEST(' + self.test_suite_name() + ', TestPath' + str(count) + ')\n{\n')
             count += 1
             # Print the path
-            self.indent(1), self.fd.write('FSM_LOG("===========================================\\n");\n')
-            self.indent(1), self.fd.write('FSM_LOG("Check path:')
+            self.indent(1), self.fd.write('FSM_LOGD("===========================================\\n");\n')
+            self.indent(1), self.fd.write('FSM_LOGD("Check path:')
             for c in path:
                 self.fd.write(' ' + c)
             self.fd.write('\\n");\n')
-            self.indent(1), self.fd.write('FSM_LOG("===========================================\\n");\n')
+            self.indent(1), self.fd.write('FSM_LOGD("===========================================\\n");\n')
 
             # Reset the state machine and print the guard supposed to reach this state
             self.indent(1), self.fd.write(self.mock_class_name() + ' ' + 'fsm;\n')
@@ -1577,14 +1582,14 @@ class Parser(object):
                 if event.name != '':
                     guard = self.current.graph[path[i]][path[i+1]]['data'].guard
                     self.fd.write('\n'), self.indent(1)
-                    self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '] Event ' + event.name + ' [' + guard + ']: ' + path[i] + ' ==> ' + path[i + 1] + '\\n");\n')
+                    self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '] Event ' + event.name + ' [' + guard + ']: ' + path[i] + ' ==> ' + path[i + 1] + '\\n");\n')
                     self.fd.write('\n'), self.indent(1), self.fd.write('fsm.' + event.caller() + ';\n')
                 if (i == len(path) - 2):
-                    self.indent(1), self.fd.write('FSM_LOG("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
+                    self.indent(1), self.fd.write('FSM_LOGD("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
                     self.indent(1), self.fd.write('ASSERT_EQ(fsm.state(), ' + self.state_enum_for_tests(path[i+1]) + ');\n')
                     self.indent(1), self.fd.write('ASSERT_STREQ(fsm.c_str(), "' + path[i+1] + '");\n')
                 elif self.current.graph[path[i+1]][path[i+2]]['data'].event.name != '':
-                    self.indent(1), self.fd.write('FSM_LOG("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
+                    self.indent(1), self.fd.write('FSM_LOGD("[UNIT TEST] Current state: %s\\n", fsm.c_str());\n')
                     self.indent(1), self.fd.write('ASSERT_EQ(fsm.state(), ' + self.state_enum_for_tests(path[i+1]) + ');\n')
                     self.indent(1), self.fd.write('ASSERT_STREQ(fsm.c_str(), "' + path[i+1] + '");\n')
             self.fd.write('}\n\n')
@@ -1725,6 +1730,11 @@ class Parser(object):
             self.generate_include(indent, '"', 'state_machine_variant.hpp', '"')
         for w in self.current.warnings:
             self.fd.write('\n#warning "' + w + '"\n')
+        if hpp:
+            self.fd.write('// Provide a default empty MOCKABLE for non-testing builds.\n')
+            self.fd.write('#ifndef MOCKABLE\n')
+            self.fd.write('#  define MOCKABLE\n')
+            self.fd.write('#endif\n')
         self.fd.write(self.current.extra_code.header)
         self.fd.write('\n')
 
@@ -1900,7 +1910,7 @@ class Parser(object):
             if event.params:
                 self.fd.write('\n')
             self.indent(2)
-            self.fd.write('FSM_LOG("[' + self.current.class_name.upper()
+            self.fd.write('FSM_LOGD("[' + self.current.class_name.upper()
                           + '][EVENT %s]\\n", __func__);\n\n')
             self.indent(2), self.fd.write('std::visit(fsm::overloaded{\n')
             for origin, destination in arcs:
@@ -1949,7 +1959,7 @@ class Parser(object):
                 self.fd.write('MOCKABLE void ' + self.state_entering_function(node, False) + '()\n')
                 self.indent(1), self.fd.write('{\n')
                 self.indent(2)
-                self.fd.write('FSM_LOG("[' + self.current.class_name.upper()
+                self.fd.write('FSM_LOGD("[' + self.current.class_name.upper()
                               + '][ENTERING STATE ' + state.name + ']\\n");\n')
                 self.fd.write(state.entering)
                 self.indent(1), self.fd.write('}\n\n')
@@ -1959,7 +1969,7 @@ class Parser(object):
                 self.fd.write('MOCKABLE void ' + self.state_leaving_function(node, False) + '()\n')
                 self.indent(1), self.fd.write('{\n')
                 self.indent(2)
-                self.fd.write('FSM_LOG("[' + self.current.class_name.upper()
+                self.fd.write('FSM_LOGD("[' + self.current.class_name.upper()
                               + '][LEAVING STATE ' + state.name + ']\\n");\n')
                 self.fd.write(state.leaving)
                 self.indent(1), self.fd.write('}\n\n')
@@ -2177,7 +2187,7 @@ class Parser(object):
                 self.indent(1), self.fd.write(arg + ' = ' + arg + '_;\n')
             if event.params:
                 self.fd.write('\n')
-            self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][EVENT %s]\\n", __func__);\n\n')
+            self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][EVENT %s]\\n", __func__);\n\n')
             self.indent(1), self.fd.write('std::visit(fsm::overloaded{\n')
             for origin, destination in arcs:
                 if origin in ['[*]', '*']:
@@ -2218,7 +2228,7 @@ class Parser(object):
                 self.fd.write('MOCKABLE bool ' + self.current.class_name + '::' + self.guard_function(origin, destination) + '()\n')
                 self.fd.write('{\n')
                 self.indent(1), self.fd.write('const bool guard = (' + tr.guard + ');\n')
-                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][GUARD ' + origin + ' --> ' + destination + ': ' + tr.guard + '] result: %s\\n",\n')
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][GUARD ' + origin + ' --> ' + destination + ': ' + tr.guard + '] result: %s\\n",\n')
                 self.indent(2), self.fd.write('(guard ? "true" : "false"));\n')
                 self.indent(1), self.fd.write('return guard;\n')
                 self.fd.write('}\n\n')
@@ -2226,7 +2236,7 @@ class Parser(object):
                 self.generate_method_comment('Do the action when transitioning from state ' + origin + ' to state ' + destination + '.')
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.transition_function(origin, destination) + '()\n')
                 self.fd.write('{\n')
-                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][TRANSITION ' + origin + ' --> ' + destination)
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][TRANSITION ' + origin + ' --> ' + destination)
                 if tr.action[0:2] != '//':
                     self.fd.write(': ' + tr.action + ']\\n");\n')
                 else:
@@ -2241,14 +2251,14 @@ class Parser(object):
                 self.generate_method_comment('Action on entering state ' + state.name + '.')
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_entering_function(node, False) + '()\n')
                 self.fd.write('{\n')
-                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
                 self.fd.write(state.entering)
                 self.fd.write('}\n\n')
             if state.leaving != '':
                 self.generate_method_comment('Action on leaving state ' + state.name + '.')
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_leaving_function(node, False) + '()\n')
                 self.fd.write('{\n')
-                self.indent(1), self.fd.write('FSM_LOG("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
                 self.fd.write(state.leaving)
                 self.fd.write('}\n\n')
 
@@ -2511,7 +2521,7 @@ class Parser(object):
                         code += '\n#warning "Undeterminist State machine detected switching from state ' + state + ' to state ' + dest + '"\n'
                 if tr.event.name == '':
                     code += '        {\n'
-                    code += '            FSM_LOG("[' + self.current.class_name.upper() + '][STATE ' + state +  '] Candidate for internal transitioning to state ' + dest + '\\n");\n'
+                    code += '            FSM_LOGD("[' + self.current.class_name.upper() + '][STATE ' + state +  '] Candidate for internal transitioning to state ' + dest + '\\n");\n'
                     code += '            static const ' + self.runtime_transition_type() + ' tr =\n'
                     code += '            {\n'
                     code += '                .destination = ' + self.state_enum(dest) + ',\n'
@@ -2772,10 +2782,47 @@ class Parser(object):
     ### param[in] cpp_or_hpp: generated a C++ source file ('cpp') or a C++ header file ('hpp').
     ### param[in] postfix: postfix name for the state machine name.
     ###########################################################################
-    def translate(self, uml_file, cpp_or_hpp, postfix, output_dir='.', snake_case=True, namespace='', gen_mode='inline'):
+    def format_generated_files(self, check_only=False):
+        formatter = shutil.which('clang-format')
+        if formatter is None:
+            self.fatal('clang-format was requested but not found in PATH')
+
+        generated = sorted([p for p in Path(self.output_dir).iterdir()
+                            if p.suffix in ('.hpp', '.cpp') and p.is_file()])
+        if len(generated) == 0:
+            return
+
+        style_file = Path(__file__).resolve().parent.parent / '.clang-format'
+        style_arg = '--style=file:' + str(style_file)
+
+        if check_only:
+            # For each generated file, compare on-disk content with what
+            # clang-format would produce. Fail if any file would be changed.
+            violations = []
+            for file_path in generated:
+                result = subprocess.run(
+                    [formatter, style_arg, str(file_path)],
+                    capture_output=True, text=True
+                )
+                with open(file_path, 'r') as fh:
+                    original = fh.read()
+                if result.stdout != original:
+                    violations.append(str(file_path))
+            if violations:
+                msg = 'clang-format check failed (would reformat):\n  ' + '\n  '.join(violations)
+                self.fatal(msg)
+        else:
+            for file_path in generated:
+                try:
+                    subprocess.run([formatter, style_arg, '-i', str(file_path)], check=True)
+                except subprocess.CalledProcessError:
+                    self.fatal('Formatting failed for generated file ' + str(file_path))
+
+    def translate(self, uml_file, cpp_or_hpp, postfix, output_dir='.', snake_case=True,
+                  namespace='', gen_mode='inline', clang_format_mode='off'):
         # Make the parser understand the plantUML grammar
         if self.parser == None:
-            grammar_file = os.path.join(os.getcwd(), 'statecharts.ebnf')
+            grammar_file = str(Path(__file__).resolve().with_name('statecharts.ebnf'))
             if not os.path.isfile(grammar_file):
                 self.fatal('File path ' + grammar_file + ' does not exist!')
             try:
@@ -2817,6 +2864,10 @@ class Parser(object):
             self.generate_variant_cxx_code(bare, False)
         else:
             self.generate_cxx_code(cpp_or_hpp, False)
+        if clang_format_mode == 'format':
+            self.format_generated_files(False)
+        elif clang_format_mode == 'check':
+            self.format_generated_files(True)
         # Generate the interpreted plantuml code
         self.generate_plantuml_file()
 
@@ -2824,7 +2875,7 @@ class Parser(object):
 ### Display command line usage
 ###############################################################################
 def usage():
-    print('Command line: ' + sys.argv[0] + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>]')
+    print('Command line: ' + sys.argv[0] + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>] [--clang-format|--check-clang-format]')
     print('Where:')
     print('   <plantuml file>: the path of a plantuml statechart')
     print('   "cpp"           : generate C++11 split output (.hpp + .cpp include unit)')
@@ -2836,6 +2887,8 @@ def usage():
     print('   [-s|--snake]: use snake_case naming for generated symbols (default)')
     print('   [-c|--camel]: use CamelCase naming for generated symbols')
     print('   [-n|--namespace <namespace>]: optional C++ namespace for generated class')
+    print('   [--clang-format]: run clang-format -i on generated .hpp/.cpp files in output directory')
+    print('   [--check-clang-format]: check generated .hpp/.cpp formatting with clang-format --dry-run --Werror')
     print('Example:')
     print('   sys.argv[1] foo.plantuml cpp Bar')
     print('Will create foo_bar.hpp and foo_bar.cpp with a state machine name foo_bar (default snake_case)')
@@ -2862,6 +2915,7 @@ def main():
     snake_case = True
     namespace = ''
     gen_mode = 'inline'
+    clang_format_mode = 'off'
     i = 3
     while i < argc:
         arg = sys.argv[i]
@@ -2887,6 +2941,14 @@ def main():
             namespace = sys.argv[i + 1]
             i += 2
             continue
+        if arg == '--clang-format':
+            clang_format_mode = 'format'
+            i += 1
+            continue
+        if arg == '--check-clang-format':
+            clang_format_mode = 'check'
+            i += 1
+            continue
 
         if postfix == '':
             postfix = arg
@@ -2898,7 +2960,8 @@ def main():
 
     p = Parser()
     p.translate(sys.argv[1], sys.argv[2], postfix, output_dir,
-                snake_case=snake_case, namespace=namespace, gen_mode=gen_mode)
+                snake_case=snake_case, namespace=namespace, gen_mode=gen_mode,
+                clang_format_mode=clang_format_mode)
 
 if __name__ == '__main__':
     main()

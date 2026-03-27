@@ -18,6 +18,8 @@ Checks:          "clang-diagnostic-*,\
                   -bugprone-suspicious-include,\
                   -fuchsia-default-arguments-calls,\
                   -fuchsia-overloaded-operator,\
+                  -fuchsia-trailing-return,\
+                  -cppcoreguidelines-non-private-member-variables-in-classes,\
                   -readability-function-cognitive-complexity"
 WarningsAsErrors: "*"
 HeaderFilterRegex: '.hpp'
