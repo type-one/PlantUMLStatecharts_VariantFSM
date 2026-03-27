@@ -661,11 +661,21 @@ class Parser(object):
     ### You can add here your copyright, license ...
     ###########################################################################
     def generate_common_header(self):
-        self.fd.write('// This file as been generated the ')
-        self.fd.write(date.today().strftime("%B %d, %Y"))
-        self.fd.write(' from the PlantUML statechart ' + self.uml_file)
-        self.fd.write('\n// This code generation is still experimental. Some '
-                      'border cases may not be correctly managed!\n\n')
+        self.fd.write('// ############################################################################\n')
+        self.fd.write('// This file has been generated on ')
+        self.fd.write(date.today().strftime("%B %d, %Y") + '\n')
+        self.fd.write('// from the PlantUML statechart ' + self.uml_file + '\n')
+        self.fd.write('// This code generation is still experimental. Some border cases may not be\n')
+        self.fd.write('// correctly managed!\n')
+        self.fd.write('//\n')
+        self.fd.write('// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n')
+        self.fd.write('// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n')
+        self.fd.write('// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n')
+        self.fd.write('// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n')
+        self.fd.write('// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n')
+        self.fd.write('// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n')
+        self.fd.write('// SOFTWARE.\n')
+        self.fd.write('// ############################################################################\n\n')
 
     ###########################################################################
     ### Code generator: generate the header of the file.
