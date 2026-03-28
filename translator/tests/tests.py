@@ -342,10 +342,12 @@ def check_generated_headers_contract():
     check('#  define MOCKABLE' not in hpp20)
 
     for generated in (hpp, hpp20, cpp, cpp20):
-        check('/// @brief' in generated)
+        check('/**' in generated)
         check('//! \\brief' not in generated)
+        check('/// @brief' not in generated)
         check('//!<' not in generated)
-        check(' //!< ' not in generated)
+        check(' ///< ' not in generated)
+        check('///< ' not in generated)
 
 def main():
     f = open('../statecharts.ebnf')

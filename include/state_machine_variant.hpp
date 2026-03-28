@@ -44,7 +44,9 @@
 #include <variant>
 
 //-----------------------------------------------------------------------------
-/// @brief Verbosity activated when compiled with -DFSM_DEBUG.
+/**
+ * @brief Verbosity activated when compiled with -DFSM_DEBUG.
+ */
 //-----------------------------------------------------------------------------
 #if defined(FSM_DEBUG)
 #define FSM_LOGD std::printf // NOLINT(cppcoreguidelines-macro-usage)
@@ -57,16 +59,18 @@ namespace fsm
 {
 
     // ---------------------------------------------------------------------------
-    /// @brief Overloaded-lambda visitor helper (C++17/20).
-    ///
-    /// Aggregates multiple lambdas into a single visitor type so they can be
-    /// passed directly to std::visit. Example usage:
-    ///
-    ///   std::visit(fsm::overloaded{
-    ///       [](StateA const&) { /* handle A */ },
-    ///       [](StateB const&) { /* handle B */ },
-    ///       [](auto  const&) { /* fallback  */ },
-    ///   }, my_variant);
+    /**
+     * @brief Overloaded-lambda visitor helper (C++17/20).
+     *
+     * Aggregates multiple lambdas into a single visitor type so they can be
+     * passed directly to std::visit. Example usage:
+     *
+     *   std::visit(fsm::overloaded{
+     *       [](StateA const&) { /* handle A */ },
+     *       [](StateB const&) { /* handle B */ },
+     *       [](auto  const&) { /* fallback  */ },
+     *   }, my_variant);
+     */
     // ---------------------------------------------------------------------------
     template <typename... Ts>
     struct overloaded : Ts...
