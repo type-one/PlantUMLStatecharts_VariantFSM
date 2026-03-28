@@ -317,6 +317,20 @@ def check_generated_headers_contract():
         )
         hpp20 = (out_path / 'simple_fsm.hpp').read_text()
 
+        subprocess.run(
+            ['python3', str(translator), str(source), 'cpp', '-o', str(out_path)],
+            check=True,
+            cwd=repo_root,
+        )
+        cpp = (out_path / 'simple_fsm.cpp').read_text()
+
+        subprocess.run(
+            ['python3', str(translator), str(source), 'cpp20', '-o', str(out_path)],
+            check=True,
+            cwd=repo_root,
+        )
+        cpp20 = (out_path / 'simple_fsm.cpp').read_text()
+
     for inc in expected_hpp_includes:
         check(inc in hpp)
     for inc in expected_hpp20_includes:
@@ -326,6 +340,12 @@ def check_generated_headers_contract():
     check('#define MOCKABLE' in hpp20)
     check('#  define MOCKABLE' not in hpp)
     check('#  define MOCKABLE' not in hpp20)
+
+    for generated in (hpp, hpp20, cpp, cpp20):
+        check('/// @brief' in generated)
+        check('//! \\brief' not in generated)
+        check('//!<' not in generated)
+        check(' //!< ' not in generated)
 
 def main():
     f = open('../statecharts.ebnf')

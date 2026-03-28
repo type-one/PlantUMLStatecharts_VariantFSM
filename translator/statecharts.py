@@ -559,18 +559,18 @@ class Parser(object):
     ### param[in] c the comment line character to print.
     ###########################################################################
     def generate_comment(self, spaces, s, comment, c):
-        final_comment = ('//! \\brief')
-        if comment != '':
-            final_comment += ' '
-            final_comment += comment
-
-        longest_list = max(len(elem) for elem in final_comment.split('\n'))
-        N = max(longest_list, 80) - len(s) * spaces
-        self.generate_line_separator(spaces, s, N, c)
-        self.fd.write(s * spaces)
-        self.fd.write(final_comment)
-        self.fd.write('\n')
-        self.generate_line_separator(spaces, s, N, c)
+        lines = comment.split('\n') if comment != '' else ['']
+        for index, line in enumerate(lines):
+            self.fd.write(s * spaces)
+            if index == 0:
+                self.fd.write('/// @brief')
+                if line != '':
+                    self.fd.write(' ' + line)
+            else:
+                self.fd.write('///')
+                if line != '':
+                    self.fd.write(' ' + line)
+            self.fd.write('\n')
 
     ###########################################################################
     ### Generate function comment with its text.
@@ -741,7 +741,7 @@ class Parser(object):
             self.indent(1), self.fd.write(self.state_name(state) + ',')
             comment = self.current.graph.nodes[state]['data'].comment
             if comment != '':
-                self.fd.write(' //!< ' + comment)
+                self.fd.write(' ///< ' + comment)
             self.fd.write('\n')
         self.indent(1), self.fd.write('// Mandatory internal states:\n')
         self.indent(1), self.fd.write('IGNORING_EVENT, CANNOT_HAPPEN, MAX_STATES\n')
@@ -885,8 +885,8 @@ class Parser(object):
         else:
             comment = 'State machine concrete implementation.'
         comment += '\n//! \\startuml\n'
-        comment += self.generate_plantuml_code('//! ')
-        comment += '//! \\enduml'
+        comment += self.generate_plantuml_code('/// ')
+        comment += '/// @enduml'
         self.generate_function_comment(comment)
 
     ###########################################################################
@@ -1124,7 +1124,7 @@ class Parser(object):
         self.fd.write('private: // Data events\n\n')
         for event, arcs in self.current.lookup_events.items():
             for arg in event.params:
-                self.indent(1), self.fd.write('//! \\brief Data for event ' + event.name + '\n')
+                self.indent(1), self.fd.write('/// @brief Data for event ' + event.name + '\n')
                 self.indent(1), self.fd.write(arg.upper() + ' ' + arg + ';\n')
         self.fd.write('\nprivate: // Client code\n\n')
         self.fd.write(self.current.extra_code.code)
@@ -1781,7 +1781,7 @@ class Parser(object):
             name = self.state_name(state)
             comment = self.current.graph.nodes[state]['data'].comment
             if comment != '':
-                self.fd.write('//!< ' + comment + '\n')
+                self.fd.write('///< ' + comment + '\n')
             self.fd.write('struct ' + name + ' {}; \n')
         self.fd.write('\n')
 
@@ -2054,7 +2054,7 @@ class Parser(object):
         for event, arcs in self.current.lookup_events.items():
             for arg in event.params:
                 self.indent(1)
-                self.fd.write('//!< Data for event ' + event.name + '\n')
+                self.fd.write('///< Data for event ' + event.name + '\n')
                 self.indent(1), self.fd.write(arg.upper() + ' ' + arg + ';\n')
         self.fd.write('\nprivate: // Client code\n\n')
         self.fd.write(self.current.extra_code.code)
@@ -2121,7 +2121,7 @@ class Parser(object):
         self.fd.write('\nprivate: // Data event members\n\n')
         for event, arcs in self.current.lookup_events.items():
             for arg in event.params:
-                self.indent(1), self.fd.write('//!< Data for event ' + event.name + '\n')
+                self.indent(1), self.fd.write('///< Data for event ' + event.name + '\n')
                 self.indent(1), self.fd.write(arg.upper() + ' ' + arg + ';\n')
 
         self.fd.write('\nprivate: // Client code\n\n')

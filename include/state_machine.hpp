@@ -40,7 +40,7 @@
 
 
 //-----------------------------------------------------------------------------
-//! \brief Verbosity activated in debug mode.
+/// @brief Verbosity activated in debug mode.
 //-----------------------------------------------------------------------------
 #include <cstdio>
 #if defined(FSM_DEBUG)
@@ -51,8 +51,8 @@
 #define FSM_LOGE(...) std::fprintf(stderr, __VA_ARGS__) // NOLINT(cppcoreguidelines-macro-usage)
 
 //-----------------------------------------------------------------------------
-//! \brief Return the given state as raw string (they shall not be free).
-//! \note implement this function inside the C++ file of the derived class.
+/// @brief Return the given state as raw string (they shall not be free).
+/// @note implement this function inside the C++ file of the derived class.
 //-----------------------------------------------------------------------------
 template <class STATES_ID>
 const char* stringify(STATES_ID const state);
@@ -95,146 +95,146 @@ namespace fsm_detail
 } // namespace fsm_detail
 
 // *****************************************************************************
-//! \brief Base class for depicting and running small Finite State Machine (FSM)
-//! by implementing a subset of UML statechart. See this document for more
-//! information about them: http://niedercorn.free.fr/iris/iris1/uml/uml09.pdf
-//!
-//! This class is not made for defining hierarchical state machine (HSM). It
-//! also does not implement composites, history, concurrent parts of the FSM.
-//! This class is fine for small Finite State Machine (FSM) and is limited due
-//! to memory footprint (therefore no complex C++ designs, no dynamic containers
-//! and few virtual methods). The code is based on the following link
-//! https://www.codeproject.com/Articles/1087619/State-Machine-Design-in-Cplusplus-2
-//! For bigger state machines, please use something more robust such as Esterel
-//! SyncCharts or directly the Esterel language
-//! https://www.college-de-france.fr/media/gerard-berry/UPL8106359781114103786_Esterelv5_primer.pdf
-//!
-//! This class holds the list of states \c State and the currently active state.
-//! Each state holds actions to perform as function pointers 'on entering', 'on
-//! leaving', 'on event' and 'do activity'.
-//!
-//! A state machine is depicted by a graph structure (nodes: states; arcs:
-//! transitions) which can be represented by a matrix (states / events) usually
-//! sparse. For example the following state machine, in plantuml syntax:
-//!
-//! @startuml
-//! [*] --> Idle
-//! Idle --> Starting : set speed
-//! Starting --> Stopping : halt
-//! Starting -> Spinning : set speed
-//! Spinning -> Stopping: halt
-//! Spinning --> Spinning : set speed
-//! Stopping -> Idle
-//! @enduml
-//!
-//! Can be depicted by the following matrix:
-//! +-----------------+------------+-----------+-----------+
-//! | States \ Event  | Set Speed  | Halt      |           |
-//! +=================+============+===========+===========+
-//! | IDLE            | STARTING   |           |           |
-//! +-----------------+------------+-----------+-----------+
-//! | STOPPING        |            |           | IDLE      |
-//! +-----------------+------------+-----------+-----------+
-//! | STARTING        | SPINNING   | STOPPING  |           |
-//! +-----------------+------------+-----------+-----------+
-//! | SPINNING        | SPINNING   | STOPPING  |           |
-//! +-----------------+------------+-----------+-----------+
-//!
-//! The first column contains all states. The first line contains all events.
-//! Each column depict a transition: given the current state (i.e. IDLE) and a
-//! given event (i.e. Set Speed) the next state of the state machine will be
-//! STARTING. Empty cells are forbidden transitions.
-//!
-//! This class does not hold directly tables for transitioning origin state to
-//! destination state when an external event occured (like done in boost
-//! lib). Instead, each external event shall be implemented as member function
-//! in the derived FSM class and in each member function shall implement the
-//! transition table.
-//!
-//! \tparam FSM the concrete Finite State Machine deriving from this base class.
-//! In this class you shall implement external events as public methods,
-//! reactions and guards as private methods, and set the first column of the
-//! matrix and their guards/reactions in the constructor method. On each event
-//! methods, you shall define the table of transition (implicit transition are
-//! considered as ignoring the event).
-//!
-//! \tparam STATES_ID enumerate for giving an unique identifier for each state.
-//! In our example:
-//!   enum StatesID { IDLE = 0, STOPPING, STARTING, SPINNING,
-//!                   IGNORING_EVENT, CANNOT_HAPPEN, MAX_STATES };
-//!
-//! The 3 last states are mandatory: in the matrix of the control motor of our
-//! previous example, holes are implicitely IGNORING_EVENT, but the user can
-//! explicitely set to CANNOT_HAPPEN to trap the whole system. Other state enum
-//! shall be used to defined the table of states \c m_states which shall be
-//! filled with these enums and pointer functions such as 'on entering' ...
-//!
-//! Transition, like states, can do reaction and have guards as pointer
-//! functions.
+/// @brief Base class for depicting and running small Finite State Machine (FSM)
+/// by implementing a subset of UML statechart. See this document for more
+/// information about them: http://niedercorn.free.fr/iris/iris1/uml/uml09.pdf
+///
+/// This class is not made for defining hierarchical state machine (HSM). It
+/// also does not implement composites, history, concurrent parts of the FSM.
+/// This class is fine for small Finite State Machine (FSM) and is limited due
+/// to memory footprint (therefore no complex C++ designs, no dynamic containers
+/// and few virtual methods). The code is based on the following link
+/// https://www.codeproject.com/Articles/1087619/State-Machine-Design-in-Cplusplus-2
+/// For bigger state machines, please use something more robust such as Esterel
+/// SyncCharts or directly the Esterel language
+/// https://www.college-de-france.fr/media/gerard-berry/UPL8106359781114103786_Esterelv5_primer.pdf
+///
+/// This class holds the list of states \c State and the currently active state.
+/// Each state holds actions to perform as function pointers 'on entering', 'on
+/// leaving', 'on event' and 'do activity'.
+///
+/// A state machine is depicted by a graph structure (nodes: states; arcs:
+/// transitions) which can be represented by a matrix (states / events) usually
+/// sparse. For example the following state machine, in plantuml syntax:
+///
+/// @startuml
+/// [*] --> Idle
+/// Idle --> Starting : set speed
+/// Starting --> Stopping : halt
+/// Starting -> Spinning : set speed
+/// Spinning -> Stopping: halt
+/// Spinning --> Spinning : set speed
+/// Stopping -> Idle
+/// @enduml
+///
+/// Can be depicted by the following matrix:
+/// +-----------------+------------+-----------+-----------+
+/// | States \ Event  | Set Speed  | Halt      |           |
+/// +=================+============+===========+===========+
+/// | IDLE            | STARTING   |           |           |
+/// +-----------------+------------+-----------+-----------+
+/// | STOPPING        |            |           | IDLE      |
+/// +-----------------+------------+-----------+-----------+
+/// | STARTING        | SPINNING   | STOPPING  |           |
+/// +-----------------+------------+-----------+-----------+
+/// | SPINNING        | SPINNING   | STOPPING  |           |
+/// +-----------------+------------+-----------+-----------+
+///
+/// The first column contains all states. The first line contains all events.
+/// Each column depict a transition: given the current state (i.e. IDLE) and a
+/// given event (i.e. Set Speed) the next state of the state machine will be
+/// STARTING. Empty cells are forbidden transitions.
+///
+/// This class does not hold directly tables for transitioning origin state to
+/// destination state when an external event occured (like done in boost
+/// lib). Instead, each external event shall be implemented as member function
+/// in the derived FSM class and in each member function shall implement the
+/// transition table.
+///
+/// @tparam FSM the concrete Finite State Machine deriving from this base class.
+/// In this class you shall implement external events as public methods,
+/// reactions and guards as private methods, and set the first column of the
+/// matrix and their guards/reactions in the constructor method. On each event
+/// methods, you shall define the table of transition (implicit transition are
+/// considered as ignoring the event).
+///
+/// @tparam STATES_ID enumerate for giving an unique identifier for each state.
+/// In our example:
+///   enum StatesID { IDLE = 0, STOPPING, STARTING, SPINNING,
+///                   IGNORING_EVENT, CANNOT_HAPPEN, MAX_STATES };
+///
+/// The 3 last states are mandatory: in the matrix of the control motor of our
+/// previous example, holes are implicitely IGNORING_EVENT, but the user can
+/// explicitely set to CANNOT_HAPPEN to trap the whole system. Other state enum
+/// shall be used to defined the table of states \c m_states which shall be
+/// filled with these enums and pointer functions such as 'on entering' ...
+///
+/// Transition, like states, can do reaction and have guards as pointer
+/// functions.
 // *****************************************************************************
 template <typename FSM, class STATES_ID, bool ThreadSafe = false>
 class state_machine : private fsm_detail::transition_lock_support<ThreadSafe>
 {
 public:
-    //! \brief Pointer method with no argument and returning a boolean.
+    /// @brief Pointer method with no argument and returning a boolean.
     using bool_function_ptr = bool (FSM::*)();
-    //! \brief Pointer method with no argument and returning void.
+    /// @brief Pointer method with no argument and returning void.
     using void_function_ptr = void (FSM::*)();
     using bFuncPtr = bool_function_ptr;
     using xFuncPtr = void_function_ptr;
 
     //--------------------------------------------------------------------------
-    //! \brief Class depicting a state of the state machine and hold pointer
-    //! methods for each desired action to perform. In UML states are like
-    //! Moore state machine: states can do action.
+    /// @brief Class depicting a state of the state machine and hold pointer
+    /// methods for each desired action to perform. In UML states are like
+    /// Moore state machine: states can do action.
     //--------------------------------------------------------------------------
     struct state
     {
-        //! \brief Call the "on leaving" callback when leavinging for the first
-        //! time (AND ONLY THE FIRST TIME) the state. Note: the guard can
-        //! prevent calling this function.
+        /// @brief Call the "on leaving" callback when leavinging for the first
+        /// time (AND ONLY THE FIRST TIME) the state. Note: the guard can
+        /// prevent calling this function.
         void_function_ptr leaving = nullptr;
-        //! \brief Call the "on entry" callback when entering for the first time
-        //! (AND ONLY THE FIRST TIME) in the state. Note: the transition guard
-        //! can prevent calling this function.
+        /// @brief Call the "on entry" callback when entering for the first time
+        /// (AND ONLY THE FIRST TIME) in the state. Note: the transition guard
+        /// can prevent calling this function.
         void_function_ptr entering = nullptr;
-        //! \brief The condition validating the event and therefore preventing
-        //! the transition to occur.
+        /// @brief The condition validating the event and therefore preventing
+        /// the transition to occur.
         void_function_ptr internal = nullptr;
     };
     using State = state;
 
     //--------------------------------------------------------------------------
-    //! \brief Class depicting a transition from a source state to a destination
-    //! state. A transition occurs when an event has occured. In UML,
-    //! transitions are like Mealey state machine: transition can do action.
+    /// @brief Class depicting a transition from a source state to a destination
+    /// state. A transition occurs when an event has occured. In UML,
+    /// transitions are like Mealey state machine: transition can do action.
     //--------------------------------------------------------------------------
     struct transition
     {
-        //! \brief State of destination
+        /// @brief State of destination
         STATES_ID destination = STATES_ID::IGNORING_EVENT;
-        //! \brief The condition validating the event and therefore preventing
-        //! the transition to occur.
+        /// @brief The condition validating the event and therefore preventing
+        /// the transition to occur.
         bool_function_ptr guard = nullptr;
-        //! \brief The action to perform when transitioning to the destination
-        //! state.
+        /// @brief The action to perform when transitioning to the destination
+        /// state.
         void_function_ptr action = nullptr;
     };
     using Transition = transition;
 
-    //! \brief Define the type of container holding all stated of the state
-    //! machine.
+    /// @brief Define the type of container holding all stated of the state
+    /// machine.
     using states = std::array<state, static_cast<int>(STATES_ID::MAX_STATES)>;
-    //! \brief Define the type of container holding states transitions. Since
-    //! a state machine is generally a sparse matrix we use red-back tree.
+    /// @brief Define the type of container holding states transitions. Since
+    /// a state machine is generally a sparse matrix we use red-back tree.
     using transitions = std::map<STATES_ID, transition>;
     using States = states;
     using Transitions = transitions;
 
     //--------------------------------------------------------------------------
-    //! \brief Default constructor. Pass the number of states the FSM will use
-    //! and set the initial state.
-    //! \param[in] initial the initial state to start with.
+    /// @brief Default constructor. Pass the number of states the FSM will use
+    /// and set the initial state.
+    /// @param initial the initial state to start with.
     //--------------------------------------------------------------------------
     state_machine(STATES_ID const initial) // FIXME should be ok for constexpr
         : m_current_state(initial)
@@ -251,7 +251,7 @@ public:
     state_machine& operator=(state_machine&&) = delete;
 
     //--------------------------------------------------------------------------
-    //! \brief Restore the state machin to its initial state.
+    /// @brief Restore the state machin to its initial state.
     //--------------------------------------------------------------------------
     void enter()
     {
@@ -263,7 +263,7 @@ public:
     }
 
     //--------------------------------------------------------------------------
-    //! \brief Return the current state.
+    /// @brief Return the current state.
     //--------------------------------------------------------------------------
     void exit()
     {
@@ -286,7 +286,7 @@ public:
     }
 
     //--------------------------------------------------------------------------
-    //! \brief Return the current state.
+    /// @brief Return the current state.
     //--------------------------------------------------------------------------
     [[nodiscard]] STATES_ID state() const
     {
@@ -294,7 +294,7 @@ public:
     }
 
     //--------------------------------------------------------------------------
-    //! \brief Return the current state as string (shall not be free'ed).
+    /// @brief Return the current state as string (shall not be free'ed).
     //--------------------------------------------------------------------------
     [[nodiscard]] const char* c_str() const
     {
@@ -302,9 +302,9 @@ public:
     }
 
     //--------------------------------------------------------------------------
-    //! \brief Internal transition: jump to the desired state from internal
-    //! event. This will call the guard, leaving actions, entering actions ...
-    //! \param[in] transitions the table of transitions.
+    /// @brief Internal transition: jump to the desired state from internal
+    /// event. This will call the guard, leaving actions, entering actions ...
+    /// @param transitions the table of transitions.
     //--------------------------------------------------------------------------
     void transition(transitions const& transitions)
     {
@@ -326,30 +326,30 @@ public:
 
 protected:
     //--------------------------------------------------------------------------
-    //! \brief Internal transition: jump to the desired state from internal
-    //! event. This will call the guard, leaving actions, entering actions ...
-    //! \param[in] transitions the table of transitions.
+    /// @brief Internal transition: jump to the desired state from internal
+    /// event. This will call the guard, leaving actions, entering actions ...
+    /// @param transitions the table of transitions.
     //--------------------------------------------------------------------------
     void transition(Transition const* tr);
 
 protected:
-    //! \brief Container of states.
+    /// @brief Container of states.
     states m_states;
 
-    //! \brief Current active state.
+    /// @brief Current active state.
     STATES_ID m_current_state;
 
 private:
-    //! \brief Maximum allowed nesting depth to detect infinite event loops.
+    /// @brief Maximum allowed nesting depth to detect infinite event loops.
     static constexpr std::size_t k_max_nesting_depth = 16U;
 
-    //! \brief Save the initial state need for restoring initial state.
+    /// @brief Save the initial state need for restoring initial state.
     STATES_ID m_initial_state;
-    //! \brief Temporary variable saving the nesting state (needed for internal
-    //! event).
+    /// @brief Temporary variable saving the nesting state (needed for internal
+    /// event).
     std::queue<Transition const*> m_nesting;
-    //! \brief Enable / disable state machine (TBD: usable for nesting state
-    //! machine (that is not generated as flat state machine)).
+    /// @brief Enable / disable state machine (TBD: usable for nesting state
+    /// machine (that is not generated as flat state machine)).
     bool m_enabled = false;
 
 public:
