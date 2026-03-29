@@ -594,6 +594,16 @@ class Parser(object):
     def indent(self, depth):
         self.fd.write(' ' * 4 * depth)
 
+    def emit_indented_code(self, code, depth):
+        if code == '':
+            return
+        for raw_line in code.splitlines():
+            line = raw_line.strip()
+            if line == '':
+                continue
+            self.indent(depth)
+            self.fd.write(line + '\n')
+
     def fmt_name(self, name):
         return camel_to_snake(name) if self.snake_case else name
 
@@ -649,6 +659,79 @@ class Parser(object):
 
     def active_method_name(self):
         return self.method_stem('is_active', 'isActive')
+
+    def _extract_bare_called_functions(self, code):
+        if code == '':
+            return set()
+        ignored = {
+            'if', 'for', 'while', 'switch', 'return', 'sizeof',
+            'static_cast', 'dynamic_cast', 'const_cast', 'reinterpret_cast',
+            'FSM_LOGD', 'FSM_LOGE', 'FSM_LOG',
+        }
+        pattern = re.compile(r'(?<![\w:\.>])([A-Za-z_][A-Za-z0-9_]*)\s*\(')
+        names = set()
+        for name in pattern.findall(code):
+            if name not in ignored:
+                names.add(name)
+        return names
+
+    def _known_generated_method_names(self):
+        names = {
+            self.current.class_name,
+            'enter',
+            'exit',
+            self.active_method_name(),
+            'c_str',
+            'is',
+        }
+        for origin, destination in list(self.current.graph.edges):
+            tr = self.current.graph[origin][destination]['data']
+            if tr.guard != '':
+                names.add(self.guard_function(origin, destination, False))
+            if tr.action != '':
+                names.add(self.transition_function(origin, destination, False))
+        for node in list(self.current.graph.nodes):
+            state = self.current.graph.nodes[node]['data']
+            if state.entering != '':
+                names.add(self.state_entering_function(node, False))
+            if state.leaving != '':
+                names.add(self.state_leaving_function(node, False))
+            if state.internal != '' and node != '[*]':
+                names.add(self.state_internal_function(node, False))
+        for event, arcs in self.current.lookup_events.items():
+            if event.name != '':
+                names.add(event.name)
+        return names
+
+    def _missing_user_call_stubs(self):
+        called = set()
+        for origin, destination in list(self.current.graph.edges):
+            tr = self.current.graph[origin][destination]['data']
+            called |= self._extract_bare_called_functions(tr.action)
+        for node in list(self.current.graph.nodes):
+            state = self.current.graph.nodes[node]['data']
+            called |= self._extract_bare_called_functions(state.entering)
+            called |= self._extract_bare_called_functions(state.leaving)
+            called |= self._extract_bare_called_functions(state.internal)
+
+        known = self._known_generated_method_names()
+        declared_in_user_code = self._extract_bare_called_functions(self.current.extra_code.code)
+        return sorted(called - known - declared_in_user_code)
+
+    def emit_client_code_section(self):
+        self.fd.write(self.current.extra_code.code)
+        stubs = self._missing_user_call_stubs()
+        if len(stubs) == 0:
+            return
+        self.fd.write('\n')
+        self.indent(1), self.fd.write('// TODO: auto-generated stubs for unresolved user callbacks\n')
+        self.indent(1), self.fd.write('// Replace or remove them by adding real methods in [code] blocks.\n')
+        for name in stubs:
+            self.indent(1), self.fd.write('template<typename... Args>\n')
+            self.indent(1), self.fd.write('void ' + name + '(Args&&...)\n')
+            self.indent(1), self.fd.write('{\n')
+            self.indent(2), self.fd.write('// TODO: implement callback from PlantUML action/state code.\n')
+            self.indent(1), self.fd.write('}\n')
 
     def generate_namespace_begin(self):
         if self.namespace == '':
@@ -1081,14 +1164,14 @@ class Parser(object):
                 self.indent(1), self.fd.write('MOCKABLE void ' + self.state_entering_function(node, False) + '()\n')
                 self.indent(1), self.fd.write('{\n')
                 self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
-                self.fd.write(state.entering)
+                self.emit_indented_code(state.entering, 2)
                 self.indent(1), self.fd.write('}\n\n')
             if state.leaving != '':
                 self.generate_method_comment('Do the action when leaving the state ' + state.name + '.')
                 self.indent(1), self.fd.write('MOCKABLE void ' + self.state_leaving_function(node, False) + '()\n')
                 self.indent(1), self.fd.write('{\n')
                 self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
-                self.fd.write(state.leaving)
+                self.emit_indented_code(state.leaving, 2)
                 self.indent(1), self.fd.write('}\n\n')
             if state.internal != '':
                 # Initial node is already generated in the ::enter() method (this save generating one method)
@@ -1130,7 +1213,7 @@ class Parser(object):
                 self.indent(1), self.fd.write('/** @brief Data for event ' + event.name + ' */\n')
                 self.indent(1), self.fd.write(arg.upper() + ' ' + arg + ';\n')
         self.fd.write('\nprivate: // Client code\n\n')
-        self.fd.write(self.current.extra_code.code)
+        self.emit_client_code_section()
         self.fd.write('};\n\n')
 
     def generate_stringify_declaration(self):
@@ -1200,7 +1283,7 @@ class Parser(object):
                 self.indent(1), self.fd.write(arg.upper() + ' ' + arg + '{};\n')
 
         self.fd.write('\nprivate: // Client code\n\n')
-        self.fd.write(self.current.extra_code.code)
+        self.emit_client_code_section()
         self.fd.write('};\n\n')
 
     def generate_state_machine_definitions(self):
@@ -1309,14 +1392,14 @@ class Parser(object):
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_entering_function(node, False) + '()\n')
                 self.fd.write('{\n')
                 self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
-                self.fd.write(state.entering)
+                self.emit_indented_code(state.entering, 1)
                 self.fd.write('}\n\n')
             if state.leaving != '':
                 self.generate_method_comment('Do the action when leaving the state ' + state.name + '.')
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_leaving_function(node, False) + '()\n')
                 self.fd.write('{\n')
                 self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
-                self.fd.write(state.leaving)
+                self.emit_indented_code(state.leaving, 1)
                 self.fd.write('}\n\n')
             if state.internal != '':
                 if node == '[*]':
@@ -2016,7 +2099,7 @@ class Parser(object):
                 self.indent(2)
                 self.fd.write('FSM_LOGD("[' + self.current.class_name.upper()
                               + '][ENTERING STATE ' + state.name + ']\\n");\n')
-                self.fd.write(state.entering)
+                self.emit_indented_code(state.entering, 2)
                 self.indent(1), self.fd.write('}\n\n')
             if state.leaving != '':
                 self.generate_method_comment('Action on leaving state ' + state.name + '.')
@@ -2026,7 +2109,7 @@ class Parser(object):
                 self.indent(2)
                 self.fd.write('FSM_LOGD("[' + self.current.class_name.upper()
                               + '][LEAVING STATE ' + state.name + ']\\n");\n')
-                self.fd.write(state.leaving)
+                self.emit_indented_code(state.leaving, 2)
                 self.indent(1), self.fd.write('}\n\n')
 
     def generate_variant_state_machine_class(self):
@@ -2080,7 +2163,7 @@ class Parser(object):
                 self.fd.write('/**< Data for event ' + event.name + ' */\n')
                 self.indent(1), self.fd.write(arg.upper() + ' ' + arg + ';\n')
         self.fd.write('\nprivate: // Client code\n\n')
-        self.fd.write(self.current.extra_code.code)
+        self.emit_client_code_section()
         self.fd.write('\nprivate:\n')
         self.indent(1), self.fd.write(self.variant_state_alias() + ' m_state;\n')
         self.indent(1), self.fd.write('bool  m_enabled = false;\n')
@@ -2148,7 +2231,7 @@ class Parser(object):
                 self.indent(1), self.fd.write(arg.upper() + ' ' + arg + ';\n')
 
         self.fd.write('\nprivate: // Client code\n\n')
-        self.fd.write(self.current.extra_code.code)
+        self.emit_client_code_section()
         self.fd.write('\nprivate:\n')
         self.indent(1), self.fd.write(self.variant_state_alias() + ' m_state;\n')
         self.indent(1), self.fd.write('bool  m_enabled = false;\n')
@@ -2284,14 +2367,14 @@ class Parser(object):
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_entering_function(node, False) + '()\n')
                 self.fd.write('{\n')
                 self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][ENTERING STATE ' + state.name + ']\\n");\n')
-                self.fd.write(state.entering)
+                self.emit_indented_code(state.entering, 1)
                 self.fd.write('}\n\n')
             if state.leaving != '':
                 self.generate_method_comment('Action on leaving state ' + state.name + '.')
                 self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_leaving_function(node, False) + '()\n')
                 self.fd.write('{\n')
                 self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][LEAVING STATE ' + state.name + ']\\n");\n')
-                self.fd.write(state.leaving)
+                self.emit_indented_code(state.leaving, 1)
                 self.fd.write('}\n\n')
 
     def generate_variant_state_machine_definitions(self):
@@ -2672,13 +2755,9 @@ class Parser(object):
         # Update state fields
         state = self.current.graph.nodes[name]['data']
         if what in ['entry', 'entering']:
-            state.entering += '        '
-            state.entering += inst.children[1].children[0][1:].strip()
-            state.entering += ';\n'
+            state.entering += inst.children[1].children[0][1:].strip() + ';\n'
         elif what in ['exit', 'leaving']:
-            state.leaving += '        '
-            state.leaving += inst.children[1].children[0][1:].strip()
-            state.leaving += ';\n'
+            state.leaving += inst.children[1].children[0][1:].strip() + ';\n'
         elif what == 'comment':
             state.comment += inst.children[1].children[0][1:].strip()
         elif what in ['do', 'activity']:
