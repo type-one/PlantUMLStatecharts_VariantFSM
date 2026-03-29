@@ -1925,6 +1925,56 @@ class Parser(object):
                     self._emit_variant_noevents(dest, 2)
         self.indent(1), self.fd.write('}\n\n')
 
+    def _group_variant_event_arcs(self, arcs):
+        grouped = dict()
+        for origin, destination in arcs:
+            if origin in ['[*]', '*']:
+                continue
+            if origin not in grouped:
+                grouped[origin] = []
+            grouped[origin].append(destination)
+        return grouped.items()
+
+    def _emit_variant_event_transition_body(self, origin, destination, indent_level):
+        tr = self.current.graph[origin][destination]['data']
+        if origin == destination:
+            if tr.action != '':
+                self.indent(indent_level)
+                self.fd.write(self.transition_function(origin, destination) + '();\n')
+            return
+
+        origin_data = self.current.graph.nodes[origin]['data']
+        if origin_data.leaving != '':
+            self.indent(indent_level)
+            self.fd.write(self.state_leaving_function(origin) + '();\n')
+        if tr.action != '':
+            self.indent(indent_level)
+            self.fd.write(self.transition_function(origin, destination) + '();\n')
+        self.indent(indent_level), self.fd.write('m_state = ' + self.state_name(destination) + '{};\n')
+        dest_data = self.current.graph.nodes[destination]['data']
+        if dest_data.entering != '':
+            self.indent(indent_level)
+            self.fd.write(self.state_entering_function(destination) + '();\n')
+        self._emit_variant_noevents(destination, indent_level)
+
+    def _emit_variant_event_dispatch_cases(self, arcs, indent_level):
+        for origin, destinations in self._group_variant_event_arcs(arcs):
+            self.indent(indent_level), self.fd.write('[this](' + self.state_name(origin) + '&)\n')
+            self.indent(indent_level), self.fd.write('{\n')
+            for destination in destinations:
+                tr = self.current.graph[origin][destination]['data']
+                if tr.guard != '':
+                    self.indent(indent_level + 1), self.fd.write('if (' + self.guard_function(origin, destination) + '())\n')
+                    self.indent(indent_level + 1), self.fd.write('{\n')
+                    self._emit_variant_event_transition_body(origin, destination, indent_level + 2)
+                    self.indent(indent_level + 2), self.fd.write('return;\n')
+                    self.indent(indent_level + 1), self.fd.write('}\n')
+                else:
+                    self._emit_variant_event_transition_body(origin, destination, indent_level + 1)
+                    self.indent(indent_level + 1), self.fd.write('return;\n')
+                    break
+            self.indent(indent_level), self.fd.write('},\n')
+
     def generate_variant_event_methods(self):
         """Generate external event methods using std::visit / fsm::overloaded."""
         for (sm, e) in self.current.broadcasts:
@@ -1949,38 +1999,7 @@ class Parser(object):
             self.fd.write('FSM_LOGD("[' + self.current.class_name.upper()
                           + '][EVENT %s]\\n", __func__);\n\n')
             self.indent(2), self.fd.write('std::visit(fsm::overloaded{\n')
-            for origin, destination in arcs:
-                if origin in ['[*]', '*']:
-                    continue
-                tr = self.current.graph[origin][destination]['data']
-                origin_name = self.state_name(origin)
-                dest_name   = self.state_name(destination)
-                self.indent(3)
-                self.fd.write('[this](' + origin_name + '&)\n')
-                self.indent(3), self.fd.write('{\n')
-                if tr.guard != '':
-                    self.indent(4)
-                    self.fd.write('if (!' + self.guard_function(origin, destination) + '())\n')
-                    self.indent(5), self.fd.write('return;\n')
-                if origin == destination:
-                    if tr.action != '':
-                        self.indent(4)
-                        self.fd.write(self.transition_function(origin, destination) + '();\n')
-                else:
-                    origin_data = self.current.graph.nodes[origin]['data']
-                    if origin_data.leaving != '':
-                        self.indent(4)
-                        self.fd.write(self.state_leaving_function(origin) + '();\n')
-                    if tr.action != '':
-                        self.indent(4)
-                        self.fd.write(self.transition_function(origin, destination) + '();\n')
-                    self.indent(4), self.fd.write('m_state = ' + dest_name + '{};\n')
-                    dest_data = self.current.graph.nodes[destination]['data']
-                    if dest_data.entering != '':
-                        self.indent(4)
-                        self.fd.write(self.state_entering_function(destination) + '();\n')
-                    self._emit_variant_noevents(destination, 4)
-                self.indent(3), self.fd.write('},\n')
+            self._emit_variant_event_dispatch_cases(arcs, 3)
             self.indent(3), self.fd.write('[](auto&) { /* ignore */ }\n')
             self.indent(2), self.fd.write('}, m_state);\n')
             self.indent(1), self.fd.write('}\n\n')
@@ -2227,32 +2246,7 @@ class Parser(object):
                 self.fd.write('\n')
             self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][EVENT %s]\\n", __func__);\n\n')
             self.indent(1), self.fd.write('std::visit(fsm::overloaded{\n')
-            for origin, destination in arcs:
-                if origin in ['[*]', '*']:
-                    continue
-                tr = self.current.graph[origin][destination]['data']
-                origin_name = self.state_name(origin)
-                dest_name = self.state_name(destination)
-                self.indent(2), self.fd.write('[this](' + origin_name + '&)\n')
-                self.indent(2), self.fd.write('{\n')
-                if tr.guard != '':
-                    self.indent(3), self.fd.write('if (!' + self.guard_function(origin, destination) + '())\n')
-                    self.indent(4), self.fd.write('return;\n')
-                if origin == destination:
-                    if tr.action != '':
-                        self.indent(3), self.fd.write(self.transition_function(origin, destination) + '();\n')
-                else:
-                    origin_data = self.current.graph.nodes[origin]['data']
-                    if origin_data.leaving != '':
-                        self.indent(3), self.fd.write(self.state_leaving_function(origin) + '();\n')
-                    if tr.action != '':
-                        self.indent(3), self.fd.write(self.transition_function(origin, destination) + '();\n')
-                    self.indent(3), self.fd.write('m_state = ' + dest_name + '{};\n')
-                    dest_data = self.current.graph.nodes[destination]['data']
-                    if dest_data.entering != '':
-                        self.indent(3), self.fd.write(self.state_entering_function(destination) + '();\n')
-                    self._emit_variant_noevents(destination, 3)
-                self.indent(2), self.fd.write('},\n')
+            self._emit_variant_event_dispatch_cases(arcs, 2)
             self.indent(2), self.fd.write('[](auto&) { /* ignore */ }\n')
             self.indent(1), self.fd.write('}, m_state);\n')
             self.fd.write('}\n\n')
