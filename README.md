@@ -72,6 +72,36 @@ in the last section of this document.
   may have to clean a little the code for your guards, actions, add member
   variables to complete the compilation.
 
+### Compile-safe stubs for unresolved callbacks
+
+The generator automatically emits a `TODO` stub for every bare function call
+found in transition actions, state entry/exit snippets, or guard expressions
+that is **not** already covered by an auto-generated method or a user-supplied
+`'[code]` block.  The stub has the form:
+
+```cpp
+template<typename... Args>
+void beep(Args&&...) { /* TODO: implement callback from PlantUML action/state code. */ }
+```
+
+This keeps the generated output in a **compilable state** even when the PlantUML
+diagram references functions that have not been written yet, so you can compile
+and run unit tests incrementally.
+
+**Limits — what stubs do NOT cover:**
+
+- **Undeclared variables** referenced inside guard expressions or actions (e.g.
+  `min`, `hours` in a guard `[min == 0 && hours == 0]`) are *not* auto-stubbed.
+  They are not function calls, so the extractor cannot detect them.  You must
+  add the corresponding member-variable declarations yourself in a `'[code]`
+  block of the diagram, or directly inside the generated class.
+- **Stubs use a variadic template** so they accept any argument list, but they
+  do nothing at runtime.  Replace each stub with a real implementation before
+  shipping to production.
+- Stubs are placed in the *client-code section* of the generated class (between
+  the `// --- user-defined code ---` markers).  They will not conflict with
+  methods you add by hand later.
+
 ## Prerequisite
 
 - Python3 and the following packages:

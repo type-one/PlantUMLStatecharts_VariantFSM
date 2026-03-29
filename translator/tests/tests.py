@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from lark import Lark, Transformer
-import os, sys
+import os, re, sys
 import subprocess
 import tempfile
 from pathlib import Path
@@ -349,6 +349,71 @@ def check_generated_headers_contract():
         check(' ///< ' not in generated)
         check('///< ' not in generated)
 
+def check_no_duplicate_variant_dispatch_lambdas():
+    """Regression test: multiple transitions from the same source state must not
+    produce duplicate lambda parameter types in the C++20 std::visit overload set.
+
+    Triggers.plantuml has three outgoing transitions from state A:
+      A -> B : e [x == 10]
+      A --> C : e
+      A --> D : [x > 10]
+
+    Before the fix, each generated an independent '[this](a&)' lambda inside the
+    event method body, making fsm::overloaded ill-formed.  After the fix there
+    must be exactly ONE lambda for state a across the whole generated .cpp.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    translator = repo_root / 'translator' / 'statecharts.py'
+    source = repo_root / 'examples' / 'Triggers.plantuml'
+
+    with tempfile.TemporaryDirectory(prefix='fsm_reg_dupvis_') as out:
+        out_path = Path(out)
+        subprocess.run(
+            ['python3', str(translator), str(source), 'cpp20', '-o', str(out_path)],
+            check=True,
+            cwd=repo_root,
+        )
+        cpp20 = (out_path / 'triggers.cpp').read_text()
+
+    # All three transitions A→B, A→C, A→D share origin 'a', so the generated
+    # std::visit block must contain exactly one '[this](a&)' lambda.
+    a_lambdas = re.findall(r'\[this\]\(a\s*&\)', cpp20)
+    check(len(a_lambdas) == 1)
+
+
+def check_normalized_state_action_indent():
+    """Regression test: state entry/exit action lines must be indented with
+    exactly 4 spaces inside on_entering_*/on_leaving_* method bodies in
+    split-mode (cpp20) output.
+
+    SimpleFSM.plantuml has:
+      State1 : entry / action7()
+      State1 : exit  / action8()
+
+    Before the fix, actions were stored with a hard-coded 8-space prefix at
+    parse time, producing double-indentation in the generated .cpp.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    translator = repo_root / 'translator' / 'statecharts.py'
+    source = repo_root / 'examples' / 'SimpleFSM.plantuml'
+
+    with tempfile.TemporaryDirectory(prefix='fsm_reg_indent_') as out:
+        out_path = Path(out)
+        subprocess.run(
+            ['python3', str(translator), str(source), 'cpp20', '-o', str(out_path)],
+            check=True,
+            cwd=repo_root,
+        )
+        cpp20 = (out_path / 'simple_fsm.cpp').read_text()
+
+    # Entry action: exactly 4-space indent, not 8.
+    check('    action7();\n' in cpp20)       # 4 spaces — correct
+    check('        action7();\n' not in cpp20)  # 8 spaces — regression guard
+    # Exit action: same rule.
+    check('    action8();\n' in cpp20)
+    check('        action8();\n' not in cpp20)
+
+
 def main():
     f = open('../statecharts.ebnf')
     parser = Lark(f.read())
@@ -360,6 +425,8 @@ def main():
     check(ast.data == 'start')
     check_AST(ast)
     check_generated_headers_contract()
+    check_no_duplicate_variant_dispatch_lambdas()
+    check_normalized_state_action_indent()
 
 if __name__ == '__main__':
     main()
