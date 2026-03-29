@@ -64,12 +64,13 @@ namespace fsm
      *
      * Aggregates multiple lambdas into a single visitor type so they can be
      * passed directly to std::visit. Example usage:
-     *
+     * @code
      *   std::visit(fsm::overloaded{
-     *       [](StateA const&) { /* handle A */ },
-     *       [](StateB const&) { /* handle B */ },
-     *       [](auto  const&) { /* fallback  */ },
+     *       [](StateA const&) { }, // handle A
+     *       [](StateB const&) { }, // handle B
+     *       [](auto  const&) { },  // fallback
      *   }, my_variant);
+     * @endcode
      */
     // ---------------------------------------------------------------------------
     template <typename... Ts>

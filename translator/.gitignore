@@ -3,4 +3,5 @@
 *.cpp
 *.gch
 *.out
+*.o
 __pycache__

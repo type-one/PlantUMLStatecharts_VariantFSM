@@ -1,12 +1,12 @@
 @startuml
 skin rose
 
-'[code]   void pairing_phone() { LOGD("[ACTION %s]\n", __func__); }
-'[code]   void led_off() { LOGD("[ACTION %s]\n", __func__); }
-'[code]   void led_blinking() { LOGD("[ACTION %s]\n", __func__); }
-'[code]   void led_glow() { LOGD("[ACTION %s]\n", __func__); }
-'[code]   void led_constant_glow() { LOGD("[ACTION %s]\n", __func__); }
-'[code]   void launch_home_screen() { LOGD("[ACTION %s]\n", __func__); }
+'[code]   void pairing_phone() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code]   void led_off() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code]   void led_blinking() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code]   void led_glow() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code]   void led_constant_glow() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code]   void launch_home_screen() { FSM_LOGD("[ACTION %s]\n", __func__); }
 
 [*] --> EthernetBoxOff
 

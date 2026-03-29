@@ -17,15 +17,15 @@ skin rose
 
 '[code] // Add here your code definining methods and member variables
 '[code] private:
-'[code]   void action1() { LOGD(NAME"[ACTION %s]\n", __func__); }
-'[code]   void action3() { LOGD(NAME"[ACTION %s]\n", __func__); }
-'[code]   void action4() { LOGD(NAME"[ACTION %s]\n", __func__); }
-'[code]   void action5() { LOGD(NAME"[ACTION %s]\n", __func__); }
-'[code]   void action6() { LOGD(NAME"[ACTION %s]\n", __func__); }
-'[code]   void action7() { LOGD(NAME"[ACTION %s]\n", __func__); }
-'[code]   void action8() { LOGD(NAME"[ACTION %s]\n", __func__); }
-'[code]   void action9() { LOGD(NAME"[ACTION %s]\n", __func__); }
-'[code]   void action10() { LOGD(NAME"[ACTION %s]\n", __func__); }
+'[code]   void action1() { FSM_LOGD(NAME"[ACTION %s]\n", __func__); }
+'[code]   void action3() { FSM_LOGD(NAME"[ACTION %s]\n", __func__); }
+'[code]   void action4() { FSM_LOGD(NAME"[ACTION %s]\n", __func__); }
+'[code]   void action5() { FSM_LOGD(NAME"[ACTION %s]\n", __func__); }
+'[code]   void action6() { FSM_LOGD(NAME"[ACTION %s]\n", __func__); }
+'[code]   void action7() { FSM_LOGD(NAME"[ACTION %s]\n", __func__); }
+'[code]   void action8() { FSM_LOGD(NAME"[ACTION %s]\n", __func__); }
+'[code]   void action9() { FSM_LOGD(NAME"[ACTION %s]\n", __func__); }
+'[code]   void action10() { FSM_LOGD(NAME"[ACTION %s]\n", __func__); }
 '[code]
 '[code] private:
 '[code]   bool guard1 = true;

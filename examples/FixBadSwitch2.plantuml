@@ -14,11 +14,11 @@ D : entry / actionD()
 '[code] private:
 '[code] bool guard1() { return true; }
 '[code] bool guard2() { return true; }
-'[code] void action1() { LOGD("[ACTION %s]\n", __func__); }
-'[code] void action2() { LOGD("[ACTION %s]\n", __func__); }
-'[code] void actionA() { LOGD("[ACTION %s]\n", __func__); }
-'[code] void actionB() { LOGD("[ACTION %s]\n", __func__); }
-'[code] void actionC() { LOGD("[ACTION %s]\n", __func__); }
-'[code] void actionD() { LOGD("[ACTION %s]\n", __func__); }
+'[code] void action1() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code] void action2() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code] void actionA() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code] void actionB() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code] void actionC() { FSM_LOGD("[ACTION %s]\n", __func__); }
+'[code] void actionD() { FSM_LOGD("[ACTION %s]\n", __func__); }
 
 @enduml

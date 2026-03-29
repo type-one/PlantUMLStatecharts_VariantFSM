@@ -1779,7 +1779,7 @@ class Parser(object):
         """Generate one empty tag struct per state for std::variant."""
         self.generate_function_comment('State tags for std::variant.')
         for state in list(self.current.graph.nodes):
-            if state in ['[*]', '*']:
+            if state == '[*]':
                 continue
             name = self.state_name(state)
             comment = self.current.graph.nodes[state]['data'].comment
@@ -1791,7 +1791,7 @@ class Parser(object):
     def generate_variant_state_alias(self):
         """Generate: using State = std::variant<A, B, ...>;"""
         states = [self.state_name(s) for s in list(self.current.graph.nodes)
-                  if s not in ['[*]', '*']]
+                  if s != '[*]']
         self.indent(1)
         self.fd.write('using ' + self.variant_state_alias() + ' = std::variant<')
         self.fd.write(', '.join(states))
@@ -1814,12 +1814,13 @@ class Parser(object):
         self.emit_variant_thread_safety_lock(2)
         self.indent(2), self.fd.write('return std::visit(fsm::overloaded{\n')
         for state in list(self.current.graph.nodes):
-            if state in ['[*]', '*']:
+            if state == '[*]':
                 continue
             name = self.state_name(state)
+            label = 'DESTRUCTOR' if state == '*' else state
             self.indent(3)
             self.fd.write('[](')
-            self.fd.write(name + ' const&) { return "' + state + '"; },\n')
+            self.fd.write(name + ' const&) { return "' + label + '"; },\n')
         self.indent(2), self.fd.write('}, m_state);\n')
         self.indent(1), self.fd.write('}\n\n')
 
@@ -2142,10 +2143,12 @@ class Parser(object):
         self.emit_variant_thread_safety_lock(1)
         self.indent(1), self.fd.write('return std::visit(fsm::overloaded{\n')
         for state in list(self.current.graph.nodes):
-            if state in ['[*]', '*']:
+            if state == '[*]':
                 continue
             name = self.state_name(state)
-            self.indent(2), self.fd.write('[](' + name + ' const&) { return "' + state + '"; },\n')
+            label = 'DESTRUCTOR' if state == '*' else state
+            self.indent(2), self.fd.write('[](' + name + ' const&) { return "' + label + '"; },\n')
+        self.indent(2), self.fd.write('[](auto const&) { return "DESTRUCTOR"; },\n')
         self.indent(1), self.fd.write('}, m_state);\n')
         self.fd.write('}\n\n')
 
@@ -2565,7 +2568,7 @@ class Parser(object):
                 if tr.event.name == '':
                     code += '        {\n'
                     code += '            FSM_LOGD("[' + self.current.class_name.upper() + '][STATE ' + state +  '] Candidate for internal transitioning to state ' + dest + '\\n");\n'
-                    code += '            static const ' + self.runtime_transition_type() + ' tr =\n'
+                    code += '            static const struct ' + self.runtime_base_class_qualified_name() +             '<' + self.runtime_base_template_arguments() + '>::' +             self.runtime_transition_type() + ' tr =\n'
                     code += '            {\n'
                     code += '                .destination = ' + self.state_enum(dest) + ',\n'
                     if tr.action != '':
