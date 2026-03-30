@@ -33,10 +33,12 @@ try:
     from .naming import camel_to_snake, CPP_RESERVED_IDENTIFIERS
     from .model import Event, Transition, StateMachine
     from .parsing import ParsingMixin
+    from .generators import generate_cpp11_backend, generate_cpp20_backend
 except ImportError:
     from naming import camel_to_snake, CPP_RESERVED_IDENTIFIERS
     from model import Event, Transition, StateMachine
     from parsing import ParsingMixin
+    from generators import generate_cpp11_backend, generate_cpp20_backend
 
 
 ###############################################################################
@@ -1452,28 +1454,7 @@ class Parser(ParsingMixin, object):
     ### the same file else in a separated.
     ###########################################################################
     def generate_cxx_code(self, cxxfile, separated):
-        files = []
-        for self.current in self.machines.values():
-            f = self.current.class_name + self.tests_file_suffix()
-            if cxxfile == "cpp":
-                hpp_name = self.current.class_name + ".hpp"
-                cpp_name = self.current.class_name + ".cpp"
-                hpp_target = os.path.join(self.output_dir, hpp_name)
-                cpp_target = os.path.join(self.output_dir, cpp_name)
-                files.append(cpp_name)
-                files.append(f)
-                self.generate_state_machine_split(hpp_target, cpp_target)
-                self.generate_unit_tests(hpp_target, files, separated)
-            else:
-                files.append(f)
-                filename = self.current.class_name + "." +  cxxfile
-                target = os.path.join(self.output_dir, filename)
-                self.generate_state_machine(target)
-                self.generate_unit_tests(target, files, separated)
-        if separated:
-            mainfile = self.master.class_name + "MainTests.cpp"
-            mainfile = os.path.join(self.output_dir, mainfile)
-            self.generate_unit_tests_main_file(mainfile, files)
+        generate_cpp11_backend(self, cxxfile, separated)
 
     ###########################################################################
     ### C++20 std::variant / std::visit backend.
@@ -2232,30 +2213,7 @@ class Parser(ParsingMixin, object):
         self.fd.close()
 
     def generate_variant_cxx_code(self, cxxfile, separated):
-        # C++20 variant backend supports only flat (non-composite) state machines.
-        if self.master.children:
-            self.fatal('C++20 variant backend does not support composite/hierarchical '
-                       'state machines. Only flat FSM diagrams are supported.')
-        files = []
-        for self.current in self.machines.values():
-            f = self.current.class_name + self.tests_file_suffix()
-            files.append(f)
-            if cxxfile == 'cpp':
-                hpp_name = self.current.class_name + '.hpp'
-                hpp_target = os.path.join(self.output_dir, hpp_name)
-                cpp_name = self.current.class_name + '.cpp'
-                cpp_target = os.path.join(self.output_dir, cpp_name)
-                self.generate_variant_state_machine_split(hpp_target, cpp_target)
-                self.generate_variant_unit_tests(hpp_target, files, separated)
-            else:
-                filename = self.current.class_name + '.' + cxxfile
-                target = os.path.join(self.output_dir, filename)
-                self.generate_variant_state_machine(target)
-                self.generate_variant_unit_tests(target, files, separated)
-        if separated:
-            mainfile = self.master.class_name + 'MainTests.cpp'
-            mainfile = os.path.join(self.output_dir, mainfile)
-            self.generate_unit_tests_main_file(mainfile, files)
+        generate_cpp20_backend(self, cxxfile, separated)
 
     ###########################################################################
     ### Entry point for translating a plantUML file into a C++ source file.
