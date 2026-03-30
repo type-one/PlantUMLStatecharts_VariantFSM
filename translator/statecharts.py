@@ -34,11 +34,13 @@ try:
     from .model import Event, Transition, StateMachine
     from .parsing import ParsingMixin
     from .generators import generate_cpp11_backend, generate_cpp20_backend
+    from .generators.io_helpers import emit_to_file
 except ImportError:
     from naming import camel_to_snake, CPP_RESERVED_IDENTIFIERS
     from model import Event, Transition, StateMachine
     from parsing import ParsingMixin
     from generators import generate_cpp11_backend, generate_cpp20_backend
+    from generators.io_helpers import emit_to_file
 
 
 ###############################################################################
@@ -1375,11 +1377,12 @@ class Parser(ParsingMixin, object):
     ### Generate the main function doing unit tests
     ###########################################################################
     def generate_unit_tests_main_file(self, filename, files):
-        self.fd = open(filename, 'w')
-        self.fd.write('#include <gmock/gmock.h>\n')
-        self.fd.write('#include <gtest/gtest.h>\n')
-        self.generate_unit_tests_main_function(filename, files)
-        self.fd.close()
+        def emit():
+            self.fd.write('#include <gmock/gmock.h>\n')
+            self.fd.write('#include <gtest/gtest.h>\n')
+            self.generate_unit_tests_main_function(filename, files)
+
+        emit_to_file(self, filename, emit)
 
     ###########################################################################
     ### Code generator: Add an example of how using this state machine. It
@@ -1391,61 +1394,67 @@ class Parser(ParsingMixin, object):
     ###########################################################################
     def generate_unit_tests(self, cxxfile, files, separated):
         filename = self.current.class_name + self.tests_file_suffix()
-        self.fd = open(os.path.join(os.path.dirname(cxxfile), filename), 'w')
-        self.generate_unit_tests_header()
-        self.generate_unit_tests_mocked_class()
-        self.generate_unit_tests_check_cycles()
-        self.generate_unit_tests_pathes_to_sinks()
-        if not separated:
-            self.generate_unit_tests_main_function(filename, files)
-        self.generate_unit_tests_footer()
-        self.fd.close()
+
+        def emit():
+            self.generate_unit_tests_header()
+            self.generate_unit_tests_mocked_class()
+            self.generate_unit_tests_check_cycles()
+            self.generate_unit_tests_pathes_to_sinks()
+            if not separated:
+                self.generate_unit_tests_main_function(filename, files)
+            self.generate_unit_tests_footer()
+
+        emit_to_file(self, os.path.join(os.path.dirname(cxxfile), filename), emit)
 
     ###########################################################################
     ### Code generator: generate the code of the state machine
     ###########################################################################
     def generate_state_machine(self, cxxfile):
         hpp = self.is_hpp_file(cxxfile)
-        self.fd = open(cxxfile, 'w')
-        self.generate_header(hpp)
-        self.generate_namespace_begin()
-        self.generate_state_enums()
-        self.generate_stringify_function()
-        self.generate_state_machine_class()
-        self.generate_namespace_end()
-        self.generate_footer(hpp)
-        self.fd.close()
+
+        def emit():
+            self.generate_header(hpp)
+            self.generate_namespace_begin()
+            self.generate_state_enums()
+            self.generate_stringify_function()
+            self.generate_state_machine_class()
+            self.generate_namespace_end()
+            self.generate_footer(hpp)
+
+        emit_to_file(self, cxxfile, emit)
 
     def generate_state_machine_split(self, hpp_target, cpp_target):
-        self.fd = open(hpp_target, 'w')
-        self.generate_header(True)
-        self.generate_namespace_begin()
-        self.generate_state_enums()
-        self.generate_stringify_declaration()
-        self.generate_state_machine_class_declaration()
-        self.generate_namespace_end()
-        self.generate_footer(True)
-        self.fd.close()
+        def emit_hpp():
+            self.generate_header(True)
+            self.generate_namespace_begin()
+            self.generate_state_enums()
+            self.generate_stringify_declaration()
+            self.generate_state_machine_class_declaration()
+            self.generate_namespace_end()
+            self.generate_footer(True)
 
-        self.fd = open(cpp_target, 'w')
-        self.generate_common_header()
-        self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
-        self.fd.write('\n')
-        self.generate_include(0, '<', 'array', '>')
-        self.generate_include(0, '<', 'cassert', '>')
-        self.generate_include(0, '<', 'cstdlib', '>')
-        self.generate_include(0, '<', 'map', '>')
-        self.generate_include(0, '<', 'mutex', '>')
-        self.generate_include(0, '<', 'queue', '>')
-        self.generate_include(0, '<', 'cstdio', '>')
-        self.fd.write('\n')
-        self.generate_namespace_begin()
-        self.method_comment_indent = 0
-        self.generate_stringify_definition()
-        self.generate_state_machine_definitions()
-        self.method_comment_indent = 4
-        self.generate_namespace_end()
-        self.fd.close()
+        emit_to_file(self, hpp_target, emit_hpp)
+
+        def emit_cpp():
+            self.generate_common_header()
+            self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
+            self.fd.write('\n')
+            self.generate_include(0, '<', 'array', '>')
+            self.generate_include(0, '<', 'cassert', '>')
+            self.generate_include(0, '<', 'cstdlib', '>')
+            self.generate_include(0, '<', 'map', '>')
+            self.generate_include(0, '<', 'mutex', '>')
+            self.generate_include(0, '<', 'queue', '>')
+            self.generate_include(0, '<', 'cstdio', '>')
+            self.fd.write('\n')
+            self.generate_namespace_begin()
+            self.method_comment_indent = 0
+            self.generate_stringify_definition()
+            self.generate_state_machine_definitions()
+            self.method_comment_indent = 4
+            self.generate_namespace_end()
+
+        emit_to_file(self, cpp_target, emit_cpp)
 
     ###########################################################################
     ### Code generator: entry point generating C++ files: state machine, tests,
@@ -1809,14 +1818,16 @@ class Parser(ParsingMixin, object):
     def generate_variant_state_machine(self, cxxfile):
         """Write the complete C++20-variant FSM to a header/source file."""
         hpp = self.is_hpp_file(cxxfile)
-        self.fd = open(cxxfile, 'w')
-        self.generate_variant_header(hpp)
-        self.generate_namespace_begin()
-        self.generate_variant_state_structs()
-        self.generate_variant_state_machine_class()
-        self.generate_namespace_end()
-        self.generate_footer(hpp)
-        self.fd.close()
+
+        def emit():
+            self.generate_variant_header(hpp)
+            self.generate_namespace_begin()
+            self.generate_variant_state_structs()
+            self.generate_variant_state_machine_class()
+            self.generate_namespace_end()
+            self.generate_footer(hpp)
+
+        emit_to_file(self, cxxfile, emit)
 
     def generate_variant_state_machine_class_declaration(self):
         self.generate_class_comment()
@@ -2046,33 +2057,35 @@ class Parser(ParsingMixin, object):
         self.generate_variant_state_method_definitions()
 
     def generate_variant_state_machine_split(self, hpp_target, cpp_target):
-        self.fd = open(hpp_target, 'w')
-        self.generate_variant_header(True)
-        self.generate_namespace_begin()
-        self.generate_variant_state_structs()
-        self.generate_variant_state_machine_class_declaration()
-        self.generate_namespace_end()
-        self.generate_footer(True)
-        self.fd.close()
+        def emit_hpp():
+            self.generate_variant_header(True)
+            self.generate_namespace_begin()
+            self.generate_variant_state_structs()
+            self.generate_variant_state_machine_class_declaration()
+            self.generate_namespace_end()
+            self.generate_footer(True)
 
-        self.fd = open(cpp_target, 'w')
-        self.generate_common_header()
-        self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
-        self.fd.write('\n')
-        self.generate_include(0, '<', 'cstdio', '>')
-        self.generate_include(0, '<', 'cstring', '>')
-        self.generate_include(0, '<', 'mutex', '>')
-        self.generate_include(0, '<', 'optional', '>')
-        self.generate_include(0, '<', 'type_traits', '>')
-        self.generate_include(0, '<', 'utility', '>')
-        self.generate_include(0, '<', 'variant', '>')
-        self.fd.write('\n')
-        self.generate_namespace_begin()
-        self.method_comment_indent = 0
-        self.generate_variant_state_machine_definitions()
-        self.method_comment_indent = 4
-        self.generate_namespace_end()
-        self.fd.close()
+        emit_to_file(self, hpp_target, emit_hpp)
+
+        def emit_cpp():
+            self.generate_common_header()
+            self.generate_include(0, '"', self.current.class_name + '.hpp', '"')
+            self.fd.write('\n')
+            self.generate_include(0, '<', 'cstdio', '>')
+            self.generate_include(0, '<', 'cstring', '>')
+            self.generate_include(0, '<', 'mutex', '>')
+            self.generate_include(0, '<', 'optional', '>')
+            self.generate_include(0, '<', 'type_traits', '>')
+            self.generate_include(0, '<', 'utility', '>')
+            self.generate_include(0, '<', 'variant', '>')
+            self.fd.write('\n')
+            self.generate_namespace_begin()
+            self.method_comment_indent = 0
+            self.generate_variant_state_machine_definitions()
+            self.method_comment_indent = 4
+            self.generate_namespace_end()
+
+        emit_to_file(self, cpp_target, emit_cpp)
 
     def _state_is_check(self, state):
         """Return C++ expression: fsm.is<StateName>()."""
@@ -2202,15 +2215,17 @@ class Parser(ParsingMixin, object):
 
     def generate_variant_unit_tests(self, cxxfile, files, separated):
         filename = self.current.class_name + self.tests_file_suffix()
-        self.fd = open(os.path.join(os.path.dirname(cxxfile), filename), 'w')
-        self.generate_variant_unit_tests_header()
-        self.generate_variant_unit_tests_mocked_class()
-        self.generate_variant_unit_tests_check_initial_state()
-        self.generate_variant_unit_tests_check_cycles()
-        self.generate_variant_unit_tests_pathes_to_sinks()
-        if not separated:
-            self.generate_unit_tests_main_function(filename, files)
-        self.fd.close()
+
+        def emit():
+            self.generate_variant_unit_tests_header()
+            self.generate_variant_unit_tests_mocked_class()
+            self.generate_variant_unit_tests_check_initial_state()
+            self.generate_variant_unit_tests_check_cycles()
+            self.generate_variant_unit_tests_pathes_to_sinks()
+            if not separated:
+                self.generate_unit_tests_main_function(filename, files)
+
+        emit_to_file(self, os.path.join(os.path.dirname(cxxfile), filename), emit)
 
     def generate_variant_cxx_code(self, cxxfile, separated):
         generate_cpp20_backend(self, cxxfile, separated)
@@ -2317,112 +2332,13 @@ class Parser(ParsingMixin, object):
         # Generate the interpreted plantuml code
         self.generate_plantuml_file()
 
-###############################################################################
-### Display command line usage
-###############################################################################
-def usage():
-    """Print CLI usage information and terminate with error status."""
-    print('Command line: ' + sys.argv[0] + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>] [--thread-safe] [--auto-flatten] [--clang-format|--check-clang-format]')
-    print('Where:')
-    print('   <plantuml file>: the path of a plantuml statechart')
-    print('   "cpp"           : generate C++11 split output (.hpp + .cpp include unit)')
-    print('   "hpp"           : generate C++11 class-based header (single-file mode)')
-    print('   "hpp20"         : generate C++20 std::variant/std::visit state machine (self-contained header)')
-    print('   "cpp20"         : generate C++20 std::variant/std::visit split output (.hpp + .cpp stub)')
-    print('   [postfix]: is an optional postfix to extend the name of the state machine class')
-    print('   [-o <output_dir>]: optional output directory for generated files')
-    print('   [-s|--snake]: use snake_case naming for generated symbols (default)')
-    print('   [-c|--camel]: use CamelCase naming for generated symbols')
-    print('   [-n|--namespace <namespace>]: optional C++ namespace for generated class')
-    print('   [--thread-safe]: generate mutex-protected FSM code')
-    print('   [--auto-flatten]: attempt to flatten hierarchical composites into a flat FSM before generation (orthogonal regions are still unsupported)')
-    print('   [--clang-format]: run clang-format -i on generated .hpp/.cpp files in output directory')
-    print('   [--check-clang-format]: check generated .hpp/.cpp formatting with clang-format --dry-run --Werror')
-    print('Example:')
-    print('   sys.argv[1] foo.plantuml cpp Bar')
-    print('Will create foo_bar.hpp and foo_bar.cpp with a state machine name foo_bar (default snake_case)')
-    print('   sys.argv[1] foo.plantuml hpp20 Bar -o ../build/generated')
-    print('Will create generated files in ../build/generated')
-    sys.exit(-1)
-
-###############################################################################
-### Entry point.
-### argv[1] Mandatory: path of the state machine in plantUML format.
-### argv[2] Mandatory: path of the C++ file to create.
-### argv[3] Optional: Postfix name for the state machine class.
-###############################################################################
-def main():
-    """Parse CLI arguments and dispatch translation with selected options."""
-    argc = len(sys.argv)
-    if argc < 3:
-        usage()
-    if sys.argv[2] not in ['cpp', 'hpp', 'cpp20', 'hpp20']:
-        print('Invalid ' + sys.argv[2] + '. Please set instead "cpp"/"hpp" (C++11) or "cpp20"/"hpp20" (C++20 std::variant)')
-        usage()
-
-    postfix = ''
-    output_dir = '.'
-    snake_case = True
-    namespace = ''
-    gen_mode = 'inline'
-    clang_format_mode = 'off'
-    thread_safe = False
-    auto_flatten = False
-    i = 3
-    while i < argc:
-        arg = sys.argv[i]
-        if arg in ['-o', '--output-dir']:
-            if i + 1 >= argc:
-                print('Missing value for ' + arg)
-                usage()
-            output_dir = sys.argv[i + 1]
-            i += 2
-            continue
-        if arg in ['-s', '--snake']:
-            snake_case = True
-            i += 1
-            continue
-        if arg in ['-c', '--camel']:
-            snake_case = False
-            i += 1
-            continue
-        if arg in ['-n', '--namespace']:
-            if i + 1 >= argc:
-                print('Missing value for ' + arg)
-                usage()
-            namespace = sys.argv[i + 1]
-            i += 2
-            continue
-        if arg == '--clang-format':
-            clang_format_mode = 'format'
-            i += 1
-            continue
-        if arg == '--check-clang-format':
-            clang_format_mode = 'check'
-            i += 1
-            continue
-        if arg == '--thread-safe':
-            thread_safe = True
-            i += 1
-            continue
-        if arg == '--auto-flatten':
-            auto_flatten = True
-            i += 1
-            continue
-
-        if postfix == '':
-            postfix = arg
-            i += 1
-            continue
-
-        print('Unexpected argument: ' + arg)
-        usage()
-
-    p = Parser()
-    p.translate(sys.argv[1], sys.argv[2], postfix, output_dir,
-                snake_case=snake_case, namespace=namespace, gen_mode=gen_mode,
-                clang_format_mode=clang_format_mode, thread_safe=thread_safe,
-                auto_flatten=auto_flatten)
+def main(argv=None):
+    """Compatibility entry point delegating CLI behavior to `translator.cli`."""
+    try:
+        from .cli import run
+    except ImportError:
+        from cli import run
+    run(Parser, argv)
 
 if __name__ == '__main__':
     main()
