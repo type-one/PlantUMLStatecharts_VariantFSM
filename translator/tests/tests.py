@@ -414,6 +414,34 @@ def check_normalized_state_action_indent():
     check('        action8();\n' not in cpp20)
 
 
+def check_unsupported_diagrams_fail_fast():
+    """Regression test: unsupported diagram features must fail early with
+    an explicit message and non-zero exit status for all generation modes.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    translator = repo_root / 'translator' / 'statecharts.py'
+
+    unsupported_sources = [
+        repo_root / 'examples' / 'ComplexComposite.plantuml',
+        repo_root / 'examples' / 'Pompe.plantuml',
+        repo_root / 'examples' / 'SimpleOrthogonal.plantuml',
+    ]
+
+    with tempfile.TemporaryDirectory(prefix='fsm_reg_unsupported_') as out:
+        out_path = Path(out)
+        for source in unsupported_sources:
+            for mode in ('cpp', 'cpp20'):
+                result = subprocess.run(
+                    ['python3', str(translator), str(source), mode, '-o', str(out_path)],
+                    cwd=repo_root,
+                    capture_output=True,
+                    text=True,
+                )
+                output = (result.stdout or '') + (result.stderr or '')
+                check(result.returncode != 0)
+                check('Unsupported PlantUML diagram features detected:' in output)
+
+
 def main():
     f = open('../statecharts.ebnf')
     parser = Lark(f.read())
@@ -427,6 +455,7 @@ def main():
     check_generated_headers_contract()
     check_no_duplicate_variant_dispatch_lambdas()
     check_normalized_state_action_indent()
+    check_unsupported_diagrams_fail_fast()
 
 if __name__ == '__main__':
     main()
