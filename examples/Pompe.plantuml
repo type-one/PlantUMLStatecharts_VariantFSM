@@ -30,7 +30,11 @@ Default : entry / arretPompe()
 Default : do / alarmeType3()
 
 state PompeEnMarche {
+  [*] -> AttenteLiberationHM
+
   state AttenteLiberationHM {
+    [*] -> MiseEnMarchePompe
+
     MiseEnMarchePompe --> Attente40Secondes
     MiseEnMarchePompe : entry / marchePompe()
     Attente40Secondes --> Attente20Secondes : after40s
