@@ -155,6 +155,9 @@ Where:
   state blocks into a flat FSM before generation.
   Current limits: orthogonal/concurrent regions (`--` / `||`) are still not
   supported and will still fail fast with a non-zero exit.
+  Each composite state must also define an internal initial transition of the
+  form `[*] -> SubState`; otherwise flattening fails early because the active
+  leaf state cannot be derived unambiguously.
 
 Example:
 ```

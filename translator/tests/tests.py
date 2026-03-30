@@ -456,7 +456,7 @@ def check_auto_flatten_option_behavior():
         with tempfile.TemporaryDirectory(prefix='fsm_reg_autoflat_') as out:
                 out_path = Path(out)
 
-                # Composite/hierarchical sample should be transformed and generated.
+                # Simple composite sample should be transformed and generated.
                 composite = repo_root / 'examples' / 'SimpleComposite.plantuml'
                 ok = subprocess.run(
                         ['python3', str(translator), str(composite), 'cpp20', '--auto-flatten', '-o', str(out_path)],
@@ -465,6 +465,28 @@ def check_auto_flatten_option_behavior():
                         text=True,
                 )
                 check(ok.returncode == 0)
+
+                # Nested composite sample should also generate successfully.
+                nested = repo_root / 'examples' / 'ComplexComposite.plantuml'
+                nested_ok = subprocess.run(
+                    ['python3', str(translator), str(nested), 'cpp', '--auto-flatten', '-o', str(out_path)],
+                    cwd=repo_root,
+                    capture_output=True,
+                    text=True,
+                )
+                check(nested_ok.returncode == 0)
+
+                # Composite without an internal [*] transition cannot be flattened safely.
+                missing_initial = repo_root / 'examples' / 'Pompe.plantuml'
+                missing_initial_ko = subprocess.run(
+                    ['python3', str(translator), str(missing_initial), 'cpp', '--auto-flatten', '-o', str(out_path)],
+                    cwd=repo_root,
+                    capture_output=True,
+                    text=True,
+                )
+                missing_initial_output = (missing_initial_ko.stdout or '') + (missing_initial_ko.stderr or '')
+                check(missing_initial_ko.returncode != 0)
+                check('Auto-flatten requires each composite state to define an initial transition [*] -> State' in missing_initial_output)
 
                 # Orthogonal sample remains unsupported for now.
                 ortho = repo_root / 'examples' / 'SimpleOrthogonal.plantuml'

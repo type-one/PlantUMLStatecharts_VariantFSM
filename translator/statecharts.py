@@ -598,12 +598,27 @@ class Parser(object):
             return out
         self.fatal('Auto-flatten does not manage state action token ' + inst.data)
 
-    def _flatten_block(self, children, is_top=False):
+    def _flatten_block(self, children, is_top=False, prefix=''):
         # Build direct child-composite lookup first.
         child_blocks = {}
         for inst in children:
             if getattr(inst, 'data', None) == 'state_block':
                 child_blocks[str(inst.children[0]).upper()] = inst
+
+        local_leaf_names = set()
+        for item in children:
+            data = getattr(item, 'data', None)
+            if data == 'transition':
+                o = str(item.children[0]).upper()
+                d = str(item.children[2]).upper()
+                if o not in ['[*]', '*'] and o not in child_blocks:
+                    local_leaf_names.add(o)
+                if d not in ['[*]', '*'] and d not in child_blocks:
+                    local_leaf_names.add(d)
+            elif data and data.startswith('state_') and data != 'state_block':
+                s = str(item.children[0]).upper()
+                if s not in child_blocks:
+                    local_leaf_names.add(s)
 
         def direct_initial_targets(block_children):
             targets = []
@@ -614,32 +629,43 @@ class Parser(object):
                     targets.append(str(item.children[2]).upper())
             return targets
 
-        def leaves_for_block(block_inst):
+        def leaves_for_block(block_inst, block_prefix):
             block_children = block_inst.children[1:]
             local_child_blocks = {}
             for item in block_children:
                 if getattr(item, 'data', None) == 'state_block':
                     local_child_blocks[str(item.children[0]).upper()] = item
 
+            local_leafs = set()
+            for item in block_children:
+                data = getattr(item, 'data', None)
+                if data == 'transition':
+                    o = str(item.children[0]).upper()
+                    d = str(item.children[2]).upper()
+                    if o not in ['[*]', '*'] and o not in local_child_blocks:
+                        local_leafs.add(o)
+                    if d not in ['[*]', '*'] and d not in local_child_blocks:
+                        local_leafs.add(d)
+                elif data and data.startswith('state_') and data != 'state_block':
+                    s = str(item.children[0]).upper()
+                    if s not in local_child_blocks:
+                        local_leafs.add(s)
+
             leaves = set()
             for item in block_children:
                 data = getattr(item, 'data', None)
                 if data == 'state_block':
-                    leaves |= leaves_for_block(item)
-                elif data == 'transition':
-                    o = str(item.children[0]).upper()
-                    d = str(item.children[2]).upper()
-                    if o not in ['[*]', '*'] and o not in local_child_blocks:
-                        leaves.add(o)
-                    if d not in ['[*]', '*'] and d not in local_child_blocks:
-                        leaves.add(d)
-                elif data and data.startswith('state_'):
-                    s = str(item.children[0]).upper()
-                    if s not in local_child_blocks:
-                        leaves.add(s)
+                    child_name = str(item.children[0]).upper()
+                    leaves |= leaves_for_block(item, block_prefix + child_name + '_')
+                elif data in ['transition'] or (data and data.startswith('state_') and data != 'state_block'):
+                    for leaf in local_leafs:
+                        leaves.add(block_prefix + leaf)
+            if len(leaves) == 0:
+                # Empty state blocks behave like leaf states.
+                leaves.add(block_prefix[:-1])
             return leaves
 
-        def initial_leaves_for_block(block_inst):
+        def initial_leaves_for_block(block_inst, block_prefix):
             block_children = block_inst.children[1:]
             local_child_blocks = {}
             for item in block_children:
@@ -649,9 +675,12 @@ class Parser(object):
             result = set()
             for target in direct_initial_targets(block_children):
                 if target in local_child_blocks:
-                    result |= initial_leaves_for_block(local_child_blocks[target])
+                    result |= initial_leaves_for_block(local_child_blocks[target], block_prefix + target + '_')
                 else:
-                    result.add(target)
+                    result.add(block_prefix + target)
+            if len(result) == 0 and len(block_children) == 0:
+                # Empty state blocks are leaves and do not need an internal [*] transition.
+                result.add(block_prefix[:-1])
             if len(result) == 0:
                 self.fatal('Auto-flatten requires each composite state to define an initial transition [*] -> State')
             return result
@@ -659,13 +688,17 @@ class Parser(object):
         def resolve_origins(name):
             name = name.upper()
             if name in child_blocks:
-                return sorted(leaves_for_block(child_blocks[name]))
+                return sorted(leaves_for_block(child_blocks[name], prefix + name + '_'))
+            if name in local_leaf_names:
+                return [prefix + name]
             return [name]
 
         def resolve_dests(name):
             name = name.upper()
             if name in child_blocks:
-                return sorted(initial_leaves_for_block(child_blocks[name]))
+                return sorted(initial_leaves_for_block(child_blocks[name], prefix + name + '_'))
+            if name in local_leaf_names:
+                return [prefix + name]
             return [name]
 
         lines = []
@@ -673,7 +706,8 @@ class Parser(object):
         # Recurse first to flatten nested blocks.
         for inst in children:
             if getattr(inst, 'data', None) == 'state_block':
-                lines.extend(self._flatten_block(inst.children[1:], False))
+                child_name = str(inst.children[0]).upper()
+                lines.extend(self._flatten_block(inst.children[1:], False, prefix + child_name + '_'))
 
         # Expand transitions/state actions for this block level.
         for inst in children:
@@ -708,6 +742,7 @@ class Parser(object):
 
     def auto_flatten_unsupported_diagram(self):
         flattened = ['@startuml']
+        operational = []
         for inst in self.ast.children:
             data = getattr(inst, 'data', None)
             if data == 'cpp':
@@ -717,17 +752,13 @@ class Parser(object):
             elif data == 'skin':
                 # Lark keeps only FREE_TEXT as child for this rule.
                 flattened.append('skin ' + str(inst.children[0]))
-            elif data == 'state_block':
-                flattened.extend(self._flatten_block(inst.children[1:], False))
-            elif data == 'transition':
-                # Top-level transitions may target a composite and therefore need flatten expansion.
-                flattened.extend(self._flatten_block([inst], True))
-            elif data and data.startswith('state_') and data != 'state_block':
-                flattened.extend(self._flatten_block([inst], True))
+            elif data in ['state_block', 'transition'] or (data and data.startswith('state_') and data != 'state_block'):
+                operational.append(inst)
             elif data == 'ortho_block':
                 self.fatal('Auto-flatten currently does not support orthogonal/concurrent regions')
             elif data in ['note']:
                 continue
+        flattened.extend(self._flatten_block(operational, True, ''))
         flattened.append('@enduml')
 
         try:
