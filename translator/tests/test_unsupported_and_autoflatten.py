@@ -1,3 +1,19 @@
+"""
+Error-path and auto-flatten behaviour tests.
+
+These tests cover two orthogonal concerns:
+
+1. **Fast-fail for unsupported diagrams** — the translator must reject
+   PlantUML features it cannot handle (composite states, orthogonal regions)
+   with a non-zero exit code and an informative error message, regardless of
+   whether the user requested C++11 or C++20 output.
+
+2. **``--auto-flatten`` flag** — when this flag is set, composite states may
+   be silently collapsed into flat FSMs so that generation can proceed;
+   orthogonal (concurrent) regions remain unsupported even with the flag and
+   must still fail with a dedicated error message.
+"""
+
 import tempfile
 from pathlib import Path
 
@@ -11,6 +27,27 @@ import pytest
 ])
 @pytest.mark.parametrize('mode', ['cpp', 'cpp20'])
 def test_unsupported_diagrams_fail_fast(run_translator, source_name, mode):
+    """The translator must exit non-zero and print an error for diagrams that
+    use unsupported PlantUML features.
+
+    Parametrized over:
+    * ``source_name`` — three diagrams that each trigger a different unsupported
+      path: ``ComplexComposite`` (deep nesting), ``Pompe`` (shallow composite
+      with entry actions), ``SimpleOrthogonal`` (concurrent regions).
+    * ``mode`` — both ``cpp`` (C++11) and ``cpp20`` (C++20 variant backend),
+      because the guard must fire before any backend-specific code runs.
+
+    Expectations for all 6 combinations:
+    * Return-code is non-zero.
+    * Combined stdout+stderr contains the string
+      ``"Unsupported PlantUML diagram features detected:"``, giving the user
+      a clear, actionable error rather than a cryptic traceback.
+    * For composite sources (``ComplexComposite``, ``Pompe``): the string
+      ``"--auto-flatten"`` must also appear in the output, hinting that the
+      user can pass the flag to work around the limitation.
+    * For orthogonal sources (``SimpleOrthogonal``): ``--auto-flatten`` must
+      *not* be advertised, because it cannot help here.
+    """
     composite_sources = {'ComplexComposite.plantuml', 'Pompe.plantuml'}
 
     with tempfile.TemporaryDirectory(prefix='fsm_reg_unsupported_') as out:
@@ -30,6 +67,27 @@ def test_unsupported_diagrams_fail_fast(run_translator, source_name, mode):
 
 
 def test_auto_flatten_option_behavior(run_translator):
+    """The ``--auto-flatten`` flag must enable generation for composite states
+    and must keep failing for orthogonal regions.
+
+    Sequence of calls
+    -----------------
+    1. ``SimpleComposite.plantuml cpp20 --auto-flatten`` — must succeed
+       (returncode 0); simplest composite case, single level of nesting.
+    2. ``ComplexComposite.plantuml cpp --auto-flatten`` — must succeed;
+       deep composite nesting, C++11 backend.
+    3. ``Pompe.plantuml cpp --auto-flatten`` — must succeed; composite with
+       entry/exit actions.
+    4. Pompe output content check: both the ``.hpp`` and ``.cpp`` for Pompe
+       must contain the ``on_activity_default_id`` callback, confirming that
+       flattening preserved the activity semantics and did not silently drop
+       the state entry code.
+    5. ``SimpleOrthogonal.plantuml cpp --auto-flatten`` — must *fail*
+       (returncode != 0) with the message
+       ``"Auto-flatten currently does not support orthogonal/concurrent
+       regions"``, confirming that the flag does not over-promise.
+    """
+
     with tempfile.TemporaryDirectory(prefix='fsm_reg_autoflat_') as out:
         out_path = Path(out)
 

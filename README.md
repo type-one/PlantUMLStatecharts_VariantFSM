@@ -375,7 +375,7 @@ error when PlantUML is parsing the file but, on our side, we exploit them.
 - `'[code]` to allow you to add member variables or member functions.
 - `'[test]` to allow you to add C++ code for unit tests.
 
-## Things that I did not understand about state machines before this project
+## State machines and Statecharts
 
 In the beginning, I did not understand the differences between the State/Transition
 diagram (STD) from the Structured Analysis for Real-Time methodology with the
@@ -483,7 +483,7 @@ shown). In practice the table is usually sparse:
   destination state. The third column has no event, and the consequence is that
   the state is immediately transited.
 
-Our implementation is the following:
+Our C++11 implementation is the following:
 - A private fixed-size array holds states and their entry/exit actions (pointers
   to private methods).
 - Events are public methods. In each of them a static lookup table (a `std::map`

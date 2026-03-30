@@ -1,9 +1,47 @@
+"""
+Generation contract tests.
+
+These tests run the translator against small, well-known input diagrams and
+assert structural properties of the emitted files that must hold across every
+code-generation mode.  They are regression guards: if a refactor accidentally
+changes includes, macro formatting, comment style, or indentation the failures
+here are fast to diagnose because the expected text is spelled out explicitly.
+"""
+
 import re
 import tempfile
 from pathlib import Path
 
 
 def test_generated_headers_contract(run_translator):
+    """Verify that all four output modes produce well-formed file preambles.
+
+    Exercises: ``SimpleFSM.plantuml`` × {hpp, hpp20, cpp, cpp20}.
+
+    Include expectations
+    --------------------
+    * C++11 ``.hpp`` must include the C++11 state-machine header
+      (``state_machine.hpp``) and its standard dependencies (``<array>``,
+      ``<cassert>``, ``<map>``, etc.).
+    * C++20 ``.hpp`` must include the variant header
+      (``state_machine_variant.hpp``) and its standard dependencies
+      (``<variant>``, ``<optional>``, ``<type_traits>``, etc.).
+
+    MOCKABLE macro formatting
+    -------------------------
+    * The guard must expand to the single-line ``#define MOCKABLE`` form.
+    * The indented ``#  define MOCKABLE`` (legacy two-space style) must be
+      absent: any such reintroduction would indicate a regression in the
+      macro template.
+
+    Comment-style constraint
+    ------------------------
+    * All four files must use ``/**`` block-comment style.
+    * Doxygen-style line-comment variants (``//! \\brief``, ``/// @brief``,
+      ``//!<``, ``///<``) must be absent: the project standardized on ``/**``
+      blocks after the documentation pass, and this assertion prevents silent
+      regressions if a template is edited.
+    """
     expected_hpp_includes = [
         '#include "state_machine.hpp"',
         '#include <array>',
@@ -61,6 +99,21 @@ def test_generated_headers_contract(run_translator):
 
 
 def test_no_duplicate_variant_dispatch_lambdas(run_translator):
+    """Regression: the C++20 visitor must emit each per-event lambda exactly once.
+
+    Exercises: ``Triggers.plantuml`` in ``cpp20`` mode.
+
+    Background: an earlier code-generation bug caused the same ``[this](a&)``
+    dispatch lambda to be emitted twice inside the ``std::visit`` call when a
+    state machine had multiple transitions on the same event type.  The second
+    copy produced a hard compile error (duplicate lambda in overload set).
+
+    Expectation:
+    * The text ``[this](a&)`` (modulo whitespace between ``a`` and ``&``) must
+      appear exactly once in ``triggers.cpp``.  Zero occurrences would mean
+      the event is not dispatched at all; two or more would reproduce the
+      duplicate-lambda bug.
+    """
     with tempfile.TemporaryDirectory(prefix='fsm_reg_dupvis_') as out:
         out_path = Path(out)
         run_translator(['examples/Triggers.plantuml', 'cpp20', '-o', str(out_path)], check=True)
@@ -71,6 +124,21 @@ def test_no_duplicate_variant_dispatch_lambdas(run_translator):
 
 
 def test_normalized_state_action_indent(run_translator):
+    """Regression: on_entering_* action bodies must use 4-space indentation.
+
+    Exercises: ``SimpleFSM.plantuml`` in ``cpp20`` mode.
+
+    Background: a template change once caused ``on_entering_*`` bodies to be
+    indented with 8 spaces (two levels) instead of 4 (one level), making the
+    generated code inconsistently formatted compared to the rest of the file.
+
+    Expectations:
+    * ``action7();`` and ``action8();`` appear preceded by exactly four spaces
+      (``    action7();\\n``).
+    * The 8-space form (``        action7();\\n``) must be absent, confirming
+      no double-indentation regression.
+    """
+
     with tempfile.TemporaryDirectory(prefix='fsm_reg_indent_') as out:
         out_path = Path(out)
         run_translator(['examples/SimpleFSM.plantuml', 'cpp20', '-o', str(out_path)], check=True)
