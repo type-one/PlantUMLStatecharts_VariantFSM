@@ -426,6 +426,10 @@ def check_unsupported_diagrams_fail_fast():
         repo_root / 'examples' / 'Pompe.plantuml',
         repo_root / 'examples' / 'SimpleOrthogonal.plantuml',
     ]
+    composite_sources = {
+        'ComplexComposite.plantuml',
+        'Pompe.plantuml',
+    }
 
     with tempfile.TemporaryDirectory(prefix='fsm_reg_unsupported_') as out:
         out_path = Path(out)
@@ -440,6 +444,8 @@ def check_unsupported_diagrams_fail_fast():
                 output = (result.stdout or '') + (result.stderr or '')
                 check(result.returncode != 0)
                 check('Unsupported PlantUML diagram features detected:' in output)
+                if source.name in composite_sources:
+                    check('--auto-flatten' in output)
 
 
 def check_auto_flatten_option_behavior():
@@ -476,17 +482,19 @@ def check_auto_flatten_option_behavior():
                 )
                 check(nested_ok.returncode == 0)
 
-                # Composite without an internal [*] transition cannot be flattened safely.
-                missing_initial = repo_root / 'examples' / 'Pompe.plantuml'
-                missing_initial_ko = subprocess.run(
-                    ['python3', str(translator), str(missing_initial), 'cpp', '--auto-flatten', '-o', str(out_path)],
+                # Pompe should flatten and preserve keyword-safe state callbacks.
+                pompe = repo_root / 'examples' / 'Pompe.plantuml'
+                pompe_ok = subprocess.run(
+                    ['python3', str(translator), str(pompe), 'cpp', '--auto-flatten', '-o', str(out_path)],
                     cwd=repo_root,
                     capture_output=True,
                     text=True,
                 )
-                missing_initial_output = (missing_initial_ko.stdout or '') + (missing_initial_ko.stderr or '')
-                check(missing_initial_ko.returncode != 0)
-                check('Auto-flatten requires each composite state to define an initial transition [*] -> State' in missing_initial_output)
+                check(pompe_ok.returncode == 0)
+                pompe_hpp = (out_path / 'pompe.hpp').read_text()
+                pompe_cpp = (out_path / 'pompe.cpp').read_text()
+                check('MOCKABLE void on_activity_default_id();' in pompe_hpp)
+                check('MOCKABLE void pompe::on_activity_default_id()' in pompe_cpp)
 
                 # Orthogonal sample remains unsupported for now.
                 ortho = repo_root / 'examples' / 'SimpleOrthogonal.plantuml'

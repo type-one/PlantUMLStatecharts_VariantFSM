@@ -39,6 +39,26 @@ def camel_to_snake(name):
     s2 = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s1)
     return s2.lower()
 
+
+CPP_RESERVED_IDENTIFIERS = {
+    'alignas', 'alignof', 'and', 'and_eq', 'asm', 'auto',
+    'bitand', 'bitor', 'bool', 'break', 'case', 'catch', 'char',
+    'char8_t', 'char16_t', 'char32_t', 'class', 'compl', 'concept',
+    'const', 'consteval', 'constexpr', 'constinit', 'const_cast',
+    'continue', 'co_await', 'co_return', 'co_yield', 'decltype',
+    'default', 'delete', 'do', 'double', 'dynamic_cast', 'else',
+    'enum', 'explicit', 'export', 'extern', 'false', 'float', 'for',
+    'friend', 'goto', 'if', 'inline', 'int', 'long', 'mutable',
+    'namespace', 'new', 'noexcept', 'not', 'not_eq', 'nullptr',
+    'operator', 'or', 'or_eq', 'private', 'protected', 'public',
+    'register', 'reinterpret_cast', 'requires', 'return', 'short',
+    'signed', 'sizeof', 'static', 'static_assert', 'static_cast',
+    'struct', 'switch', 'template', 'this', 'thread_local', 'throw',
+    'true', 'try', 'typedef', 'typeid', 'typename', 'union',
+    'unsigned', 'using', 'virtual', 'void', 'volatile', 'wchar_t',
+    'while', 'xor', 'xor_eq',
+}
+
 ###############################################################################
 ### Console color for print.
 ###############################################################################
@@ -542,7 +562,7 @@ class Parser(object):
     ### We fail early before building partial graph state to avoid backend-
     ### specific crashes or inconsistent behavior.
     ###########################################################################
-    def assert_supported_diagram(self):
+    def assert_supported_diagram(self, auto_flatten=False):
         unsupported = set()
 
         def visit(node):
@@ -560,9 +580,12 @@ class Parser(object):
 
         if unsupported:
             details = '; '.join(sorted(unsupported))
+            hint = ''
+            if ('composite/hierarchical states (state blocks)' in unsupported) and (not auto_flatten):
+                hint = ' Try again with --auto-flatten for hierarchical/composite diagrams.'
             self.fatal('Unsupported PlantUML diagram features detected: ' + details +
                        '. This translator currently supports only flat FSM diagrams '
-                       '(no nested/composite/orthogonal regions).')
+                       '(no nested/composite/orthogonal regions).' + hint)
 
     def _transition_suffix_from_ast(self, inst):
         if len(inst.children) <= 3:
@@ -834,7 +857,10 @@ class Parser(object):
             self.fd.write(line + '\n')
 
     def fmt_name(self, name):
-        return camel_to_snake(name) if self.snake_case else name
+        candidate = camel_to_snake(name) if self.snake_case else name
+        if candidate in CPP_RESERVED_IDENTIFIERS:
+            return candidate + '_id'
+        return candidate
 
     def enum_suffix(self):
         return '_states' if self.snake_case else 'States'
@@ -1412,6 +1438,13 @@ class Parser(object):
                 self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][INTERNAL TRANSITION FROM STATE ' + node + ']\\n");\n')
                 self.fd.write(state.internal)
                 self.indent(1), self.fd.write('}\n\n')
+            if state.activity != '':
+                self.generate_method_comment('Do the activity in the state ' + state.name + '.')
+                self.indent(1), self.fd.write('MOCKABLE void ' + self.state_activity_function(node, False) + '()\n')
+                self.indent(1), self.fd.write('{\n')
+                self.indent(2), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][ACTIVITY STATE ' + state.name + ']\\n");\n')
+                self.emit_indented_code(state.activity, 2)
+                self.indent(1), self.fd.write('}\n\n')
 
     ###########################################################################
     ### Entry point to generate the whole state machine class and all its methods.
@@ -1499,6 +1532,8 @@ class Parser(object):
                 self.indent(1), self.fd.write('MOCKABLE void ' + self.state_leaving_function(node, False) + '();\n')
             if state.internal != '' and node != '[*]':
                 self.indent(1), self.fd.write('void ' + self.state_internal_function(node, False) + '();\n')
+            if state.activity != '':
+                self.indent(1), self.fd.write('MOCKABLE void ' + self.state_activity_function(node, False) + '();\n')
         self.fd.write('\n')
 
         self.fd.write('private: // Nested state machines\n\n')
@@ -1638,6 +1673,13 @@ class Parser(object):
                 self.fd.write('{\n')
                 self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][INTERNAL TRANSITION FROM STATE ' + node + ']\\n");\n')
                 self.fd.write(state.internal)
+                self.fd.write('}\n\n')
+            if state.activity != '':
+                self.generate_method_comment('Do the activity in the state ' + state.name + '.')
+                self.fd.write('MOCKABLE void ' + self.current.class_name + '::' + self.state_activity_function(node, False) + '()\n')
+                self.fd.write('{\n')
+                self.indent(1), self.fd.write('FSM_LOGD("[' + self.current.class_name.upper() + '][ACTIVITY STATE ' + state.name + ']\\n");\n')
+                self.emit_indented_code(state.activity, 1)
                 self.fd.write('}\n\n')
 
     ###########################################################################
@@ -3193,7 +3235,7 @@ class Parser(object):
         self.fd.close()
         if auto_flatten:
             self.auto_flatten_unsupported_diagram()
-        self.assert_supported_diagram()
+        self.assert_supported_diagram(auto_flatten=auto_flatten)
         # Create the main state machine
         self.current = StateMachine()
         self.current.name = Path(uml_file).stem
