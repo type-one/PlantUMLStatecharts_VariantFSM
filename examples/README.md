@@ -110,11 +110,19 @@ system will be frozen and the tool is detecting them.
 
 ![alt triggers](../doc/Triggers.png)
 
-### Unsupported examples kept in repository
+### Composite examples usable with `--auto-flatten`
 
-The following diagrams are intentionally kept as unsupported examples for future
-work and are not parsed by the current generator:
+The following hierarchical/composite diagrams can be flattened into a supported
+flat FSM with the CLI option `--auto-flatten`:
 
 - `SimpleComposite.plantuml`
-- `SimpleOrthogonal.plantuml`
-- `Pompe.plantuml`
+- `ComplexComposite.plantuml`
+
+### Still unsupported examples kept in repository
+
+The following diagrams are intentionally kept as unsupported examples or partial
+future-work cases:
+
+- `SimpleOrthogonal.plantuml`: orthogonal/concurrent regions are not flattened yet.
+- `Pompe.plantuml`: composite flattening currently fails because one composite
+	state does not declare an internal initial transition `[*] -> SubState`.

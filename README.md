@@ -159,6 +159,14 @@ Where:
   form `[*] -> SubState`; otherwise flattening fails early because the active
   leaf state cannot be derived unambiguously.
 
+Current repository examples with `--auto-flatten`:
+- `SimpleComposite.plantuml`: generates and compiles in both `cpp` and `cpp20`.
+- `ComplexComposite.plantuml`: generates and compiles in both `cpp` and `cpp20`.
+- `Pompe.plantuml`: still fails early because one composite state does not
+  declare an internal initial transition `[*] -> SubState`.
+- `SimpleOrthogonal.plantuml`: still fails early because orthogonal/concurrent
+  regions are not flattened yet.
+
 Example:
 ```
 ./statecharts.py foo.plantuml cpp controller
