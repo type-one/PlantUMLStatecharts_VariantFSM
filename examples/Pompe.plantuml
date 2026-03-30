@@ -1,6 +1,9 @@
 @startuml
 skin rose
 
+' Unsupported by this translator: composite/hierarchical state blocks.
+' This example is kept as reference and is expected to fail fast at generation time.
+
 '[header] #define Cevent bool
 '[code] private:
 '[code] void marchePompe() {}

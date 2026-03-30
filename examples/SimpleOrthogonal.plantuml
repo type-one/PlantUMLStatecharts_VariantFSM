@@ -1,6 +1,9 @@
 @startuml
 skin rose
 
+' Unsupported by this translator: orthogonal/concurrent regions (--) and nested state blocks.
+' This example is kept as reference and is expected to fail fast at generation time.
+
 '[brief] Test simple orthogonal state.
 
 [*] -> EnableSystem

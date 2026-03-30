@@ -1,5 +1,8 @@
 @startuml
 
+' Unsupported by this translator: composite/hierarchical state blocks.
+' This example is kept as reference and is expected to fail fast at generation time.
+
 state State0 {
   state State1 {
     state State11 {

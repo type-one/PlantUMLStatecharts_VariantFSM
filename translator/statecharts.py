@@ -538,6 +538,33 @@ class Parser(object):
         sys.exit(-1)
 
     ###########################################################################
+    ### Enforce translator policy: only flat FSM diagrams are supported.
+    ### We fail early before building partial graph state to avoid backend-
+    ### specific crashes or inconsistent behavior.
+    ###########################################################################
+    def assert_supported_diagram(self):
+        unsupported = set()
+
+        def visit(node):
+            data = getattr(node, 'data', None)
+            if data == 'state_block':
+                unsupported.add('composite/hierarchical states (state blocks)')
+            elif data == 'ortho_block':
+                unsupported.add('orthogonal/concurrent regions')
+            for child in getattr(node, 'children', []):
+                # Only recurse on tree-like nodes.
+                if hasattr(child, 'children'):
+                    visit(child)
+
+        visit(self.ast)
+
+        if unsupported:
+            details = '; '.join(sorted(unsupported))
+            self.fatal('Unsupported PlantUML diagram features detected: ' + details +
+                       '. This translator currently supports only flat FSM diagrams '
+                       '(no nested/composite/orthogonal regions).')
+
+    ###########################################################################
     ### Generate a separator line for function.
     ### param[in] spaces the number of spaces char to print.
     ### param[in] the space character to print.
@@ -2579,10 +2606,8 @@ class Parser(object):
     def generate_variant_cxx_code(self, cxxfile, separated):
         # C++20 variant backend supports only flat (non-composite) state machines.
         if self.master.children:
-            print('Error: C++20 variant backend does not support composite/hierarchical '
-                  'state machines. Use \'hpp\' or \'cpp\' mode instead.',
-                  file=sys.stderr)
-            return
+            self.fatal('C++20 variant backend does not support composite/hierarchical '
+                       'state machines. Only flat FSM diagrams are supported.')
         files = []
         for self.current in self.machines.values():
             f = self.current.class_name + self.tests_file_suffix()
@@ -2963,6 +2988,7 @@ class Parser(object):
         self.fd = open(self.uml_file, 'r')
         self.ast = self.parser.parse(self.fd.read())
         self.fd.close()
+        self.assert_supported_diagram()
         # Create the main state machine
         self.current = StateMachine()
         self.current.name = Path(uml_file).stem
