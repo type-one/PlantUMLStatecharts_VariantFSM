@@ -6,3 +6,4 @@ examples/build
 
 tmp_gen_*
 tmp_test_*
+.tmp*
