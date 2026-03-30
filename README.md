@@ -377,36 +377,38 @@ error when PlantUML is parsing the file but, on our side, we exploit them.
 
 ## State machines and Statecharts
 
-In the beginning, I did not understand the differences between the State/Transition
-diagram (STD) from the Structured Analysis for Real-Time methodology with the
-UML statechart. In STD actions are made by transitions, while in UML actions are
-made by transitions or by states. I was confused.
+The State/Transition Diagram (STD) from the Structured Analysis for Real-Time
+methodology and the UML statechart share similar notation but differ in where
+actions are attached: in STD, actions belong exclusively to transitions, whereas
+in UML, actions can be attached to both transitions and states.
 
-What I understood after: in 1956 there were two kinds of state machines: Moore in
-where actions were called from states and Mealy where actions were called
-from transitions. They describe exactly the same system and you can translate a
-Moore machine into a Mealy machine and vice versa, without losing any
-expressiveness
-[cite](https://www.itemis.com/en/yakindu/state-machine/documentation/user-guide/overview_what_are_state_machines). In
-1984, Harel mixed the two syntaxes plus added some features (composite ...) and
-named it statecharts. Finally UML integrated statecharts in their standard.
+The distinction traces back to 1956, when two complementary formalisms were
+defined: **Moore machines**, in which actions are associated with states, and
+**Mealy machines**, in which actions are associated with transitions.  Both
+formalisms describe the same class of systems and can be translated into each
+other without loss of expressiveness
+[cite](https://www.itemis.com/en/yakindu/state-machine/documentation/user-guide/overview_what_are_state_machines).
+In 1984, Harel unified the two models and extended them with composite states,
+orthogonal regions, and history, naming the result *statecharts*.  UML later
+adopted statecharts as its standard behavioural diagram.
 
-Some tools like the one explained in this
-[document](https://cs.emis.de/LNI/Proceedings/Proceedings07/TowardEfficCode_3.pdf)
-simplify the statecharts graph to get a Mealy graph before generating the
-code. In the case of our translator, to keep the code simple to read, the state
-machine is not simplified and actions are made by states and by transitions.
+Some code generators (such as the one described in this
+[paper](https://cs.emis.de/LNI/Proceedings/Proceedings07/TowardEfficCode_3.pdf))
+normalise the statechart into a pure Mealy graph before emitting code.  This
+translator deliberately does not perform that normalisation: actions on both
+states and transitions are preserved in the generated output so that the
+resulting C++ code stays close to the original diagram.
 
-Another point of confusion hat is the difference between action and activity.
-The action is instantaneous: it does not consume time (contrary to the
-activity). The activity can be seen as a thread that is preempted by any
-external events the state reacts to. The thread is halted when the activity is
-done or when the system switches state. Therefore, an activity shall not be
-seen by a periodic external `update` event since its code does not necessarily be
-repeated.
+A related distinction worth noting is the difference between an **action** and
+an **activity**.  An action is instantaneous — it completes without consuming
+modelled time.  An activity, by contrast, runs concurrently with the system and
+can be preempted by any event the state reacts to; it is halted when the state
+is exited or when the activity itself finishes.  Consequently, an activity
+should not be driven by a periodic `update` event, because its body is not
+meant to be repeated.
 
-My last point of confusion concerned the order of execution of actions in
-transitions and in states. I explain it in the next section.
+The order of execution of actions across transitions and states is detailed in
+the next section.
 
 ## Rule of execution in Statecharts
 
@@ -445,30 +447,31 @@ the caller.
 
 ## Details Design
 
+### Translation pipeline
+
 The translation pipeline of the Python script is the following:
 - The [Lark](https://github.com/lark-parser/lark) parser loads the
-  [grammar](tool/statechart.ebnf) file for parsing the PlantUML statechart
-  file. Note: this grammar does not come from an official source (PlantUML does
-  not offer their grammar. I manages a subset of their syntax).
-- The [PlantUML statecharts](https://plantuml.com/fr/state-diagram) file is then
-  parsed by Lark and an Abstract Syntax Tree (AST) is generated.
-- This AST is then visited and a digraph [Networkx](https://networkx.org/)
-  structure is created (nodes are states and arcs are transitions). Events and
-  actions are stored to them.
-- This graph is visited to make some verification (if the state machine is well
-  formed ...), then to generate the C++ code source. Unit tests are generating
-  from graph cycles or paths from source to sinks (what inputs make me reach the
-  desired state) ...
+  [grammar](translator/statecharts.ebnf) file and parses the PlantUML statechart
+  input.  The grammar is not derived from an official PlantUML source (PlantUML
+  does not publish a formal grammar); it covers the subset of the syntax this
+  tool supports.
+- The parsed input produces a Lark Abstract Syntax Tree (AST).
+- The AST is visited and a directed graph ([Networkx](https://networkx.org/)
+  `DiGraph`) is built: nodes are states, arcs are transitions, events and
+  actions are stored as arc attributes.
+- The graph is then traversed for validation (reachability, well-formedness)
+  and finally for code generation.  Unit tests are generated from graph cycles
+  and paths from the initial state to sink states, exercising the transitions
+  that lead to each reachable state.
 
-How is the generated code? The state machine, like any graph structure (nodes
-are states and edges are transitions) can be depicted by a matrix.
+### State matrix representation
 
-For example concerning the motor controller:
+A state machine, like any directed graph, can be represented as a sparse
+transition matrix.  For example, the motor controller:
 
 ![alt motor](doc/Motor.png)
 
-can be depicted in the following table (guards and actions are not
-shown). In practice the table is usually sparse:
+maps to the following table (guards and actions omitted for clarity):
 
 |                 | Set Speed  | Halt      | --        |
 |-----------------|------------|-----------|-----------|
@@ -477,62 +480,126 @@ shown). In practice the table is usually sparse:
 | STARTING        | SPINNING   | STOPPING  |           |
 | SPINNING        | SPINNING   | STOPPING  |           |
 
-- The first column holds source states (origin).
-- The first row holds events.
-- For each event (therefore for each column) each matrix cell holds the
-  destination state. The third column has no event, and the consequence is that
-  the state is immediately transited.
+- The first column holds source states.
+- The first row holds events.  The `--` column represents an eventless
+  (automatic) transition: the state transitions immediately without waiting for
+  an event.
+- Each cell holds the destination state; empty cells are ignored transitions.
 
-Our C++11 implementation is the following:
-- A private fixed-size array holds states and their entry/exit actions (pointers
-  to private methods).
-- Events are public methods. In each of them a static lookup table (a `std::map`
-  for the sparse side) maps transitions (source states to destination states)
-  shall be defined. This table also holds pointers to private methods for the
-  guards and for actions. This table is used by a general private method doing
-  all statecharts logic to follow the UML norm.
-- The norm says that events shall be mutually exclusive (since we are dealing with
-  discrete time events, several events can occur during the delta time). But
-  since the API of C++ state machine only offers public methods to trigger the
-  event, the exclusion shall be made uphill (by the caller function).
-- The code is based on this
-  [project](https://www.codeproject.com/Articles/1087619/State-Machine-Design-in-Cplusplus-2)
-  but with several differences described:
-  - The code uses the curiously recurring template pattern to use the child
-    state machine class and use external enums for defining states (internal
-    enums were not possible).
-  - Actions and guards are placed on transitions.
-  - Transition are parameters to the main function doing the logic of the state
-    machine (transitions, calling guards, and actions).
-  - I also merge internal and external transitions into a single function. I also
-    use an internal queue.
+Both C++ backends encode this matrix, but with different mechanisms.
+
+### C++11 implementation (`cpp` / `hpp`)
+
+The generated class inherits from the CRTP base class
+`state_machine<Derived, STATES_ID>` provided by
+[include/state_machine.hpp](include/state_machine.hpp).
+
+Key design points:
+- **State enumeration**: states are identified by values of an external `enum
+  STATES_ID`.  Two mandatory sentinel values — `IGNORING_EVENT` and
+  `CANNOT_HAPPEN` — model holes in the transition matrix.
+- **State table**: a private fixed-size `std::array` holds one `state` struct
+  per state.  Each struct carries function pointers for the entering, leaving,
+  and internal-event actions.
+- **Transition table**: each public event method defines a local static
+  `std::map<STATES_ID, transition>` (the sparse row for that event).  Each
+  `transition` struct carries the destination state, a guard function pointer,
+  and an action function pointer.
+- **Dispatch**: events delegate to a single private `transit()` method in the
+  base class, which evaluates the guard, calls exit/action/entry callbacks in
+  the correct UML order, and updates the active state.
+- **Mutual exclusion**: the UML norm requires events to be mutually exclusive.
+  Thread-safe generation (`--thread-safe`) adds a `std::mutex` and wraps every
+  public method with `std::unique_lock`; otherwise locking is a no-op.
+- The design is inspired by
+  [State Machine Design in C++](https://www.codeproject.com/Articles/1087619/State-Machine-Design-in-Cplusplus-2)
+  with the following differences: the curiously recurring template pattern (CRTP)
+  is used in place of virtual dispatch; internal and external transitions share
+  a single `transit()` method; an internal event queue is included; and guards
+  and actions are placed on transitions rather than on states.
+
+### C++20 `std::variant` implementation (`cpp20` / `hpp20`)
+
+The generated class is **self-contained** — it does not inherit from any base
+class.  It only includes
+[include/state_machine_variant.hpp](include/state_machine_variant.hpp), which
+provides the `fsm::overloaded` visitor helper.
+
+Key design points:
+- **State tags**: each state is represented by a distinct empty struct
+  (e.g. `struct state1{};`, `struct state2{};`).  These act as type-level
+  discriminants with zero runtime overhead.
+- **Current state**: stored as `std::variant<state1, state2, ...> m_state`.
+  The active state is the type currently held by the variant; no integer index
+  or enum is needed at the application level.
+- **Event dispatch**: each public event method calls
+  `std::visit(fsm::overloaded{ ... }, m_state)`.  The `fsm::overloaded` helper
+  (a variadic lambda aggregator) routes execution to the lambda matching the
+  active state type.  States that do not react to a given event are covered by
+  a no-op default lambda.  There is no runtime lookup table; the compiler can
+  resolve the dispatch at compile time.
+- **Guards and actions**: per-transition private methods follow the naming
+  convention `on_guarding_<src>_<dst>()` (returns `bool`) and
+  `on_transitioning_<src>_<dst>()` (returns `void`).  All are declared
+  `MOCKABLE` so unit-test mocks can override them without subclassing the full
+  FSM.
+- **Entry and exit actions**: private methods `on_entering_<state>()` and
+  `on_leaving_<state>()`, also `MOCKABLE`.
+- **State change**: a transition assigns the destination tag value to `m_state`
+  (e.g. `m_state = state2{};`), replacing the current variant alternative.
+- **Thread safety**: the `--thread-safe` flag adds a `mutable std::mutex
+  m_mutex` member and wraps every public method (events, `is()`, `c_str()`,
+  `is_active()`) with `std::lock_guard<std::mutex>`.
+- **Output modes**:
+  - `hpp20` produces a single self-contained header (declarations and
+    definitions in one file).
+  - `cpp20` produces a split pair: `<name>.hpp` with declarations and
+    `<name>.cpp` with method bodies.
 
 ## References
+
+### State machines and statecharts
 
 - [Yakindu statecharts](https://www.itemis.com/en/yakindu/state-machine/documentation/user-guide/overview_what_are_state_machines)
   YAKINDU Statechart Tools is a tool for specializing and developing state machines.
 - [Developing Reactive Systems Using Statecharts](http://msdl.cs.mcgill.ca/people/hv/teaching/MoSIS/lectures/StatechartsModellingAndSimulation.pdf)
-  a well-made English course to statecharts.
+  A course on statecharts modelling and simulation.
 - [Modeling dynamic system views](http://niedercorn.free.fr/iris/iris1/uml/uml09.pdf)
-  a French-language introduction to UML statecharts.
+  A French-language introduction to UML statecharts.
 - [ML/SysML state diagram and Arduino programming](https://eduscol.education.fr/sti/ressources_pedagogiques/umlsysml-diagramme-detat-et-programmation-arduino#fichiers-liens)
-  a French-language statecharts course with open source code. The API is simple
-  to read but is the only one I saw offering advanced statechart features such
-  as activities and history.
+  A French-language statecharts course with open source code covering advanced
+  features such as activities and history.
 - [State Machine Design in C++](https://www.codeproject.com/Articles/1087619/State-Machine-Design-in-Cplusplus-2)
-  The C++ code of our state machine is inspired by this project.
+  The C++11 state machine runtime in this repository is inspired by this project.
 - [Towards Efficient Code Synthesis from Statecharts](https://cs.emis.de/LNI/Proceedings/Proceedings07/TowardEfficCode_3.pdf)
-  Research paper on how to generate state machine.
-- [Real-Time Structured methods: Systems Analysis](https://www.amazon.com/Real-Time-Structured-Methods-Analysis-Engineering/dp/0471934151)
-  by Keith Edwards, Edition Wiley 1993.SART can be seen as the ancestor of UML
-  in which mainly three diagrams are used: -- diagrams describing how data
-  (information) are transformed (discrete and continuous) -- diagrams describing
-  how data flow is controlled: processes from the first diagram are enabled,
-  disabled or triggered, -- and finally diagrams describing behavior over time:
-  they are mainly depicted by a state transition diagram (therefore a state
-  machine) describing how the control flow (second diagram) controls the data
-  flow (first diagram).
-- [Sructured Analysis for Real Time](https://www.espacetechnologue.com/wp-content/uploads/2017/03/2_DeveloppementApp_STRv11.pdf)
+  Research paper on generating state machine code from statecharts.
+- [Real-Time Structured Methods: Systems Analysis](https://www.amazon.com/Real-Time-Structured-Methods-Analysis-Engineering/dp/0471934151)
+  by Keith Edwards, Wiley 1993.  SART can be seen as a precursor to UML, using
+  three complementary diagram types: data-transformation diagrams (discrete and
+  continuous), control-flow diagrams (enabling/disabling/triggering processes),
+  and state-transition diagrams linking the two.
+- [Structured Analysis for Real Time](https://www.espacetechnologue.com/wp-content/uploads/2017/03/2_DeveloppementApp_STRv11.pdf)
 - [UML Behavioral Diagrams: State Transition Diagram](https://youtu.be/OsmWASXE2IM) and
   [State Transition Diagram](https://youtu.be/PF9QcYWIsVE) YouTube videos made by the
   Georgia Tech Software Development Process.
+
+### C++20 `std::variant` / `std::visit` FSMs
+
+- [`std::variant` — cppreference](https://en.cppreference.com/w/cpp/utility/variant)
+  The C++ standard reference for the discriminated union type used to hold the
+  active state in the C++20 backend.
+- [`std::visit` — cppreference](https://en.cppreference.com/w/cpp/utility/variant/visit)
+  The C++ standard reference for the visitor dispatch mechanism, including the
+  canonical `overloaded` lambda-aggregator pattern used in this generator.
+- [Finite State Machines in C++17 with `std::variant`](https://www.cppstories.com/2023/finite-state-machines-variant-cpp/)
+  by Bartłomiej Filipek.  Walks through building a variant-based FSM step by
+  step; the dispatch structure is conceptually equivalent to what this generator
+  emits.
+- [std::variant and the Overload Pattern](https://www.modernescpp.com/index.php/visiting-a-std-variant-with-the-overload-pattern/)
+  by Rainer Grimm.  Explains the `overloaded` helper in detail, covering
+  deduction guides and the `using` pack expansion that makes multi-lambda
+  `std::visit` calls compile.
+- [P0088 — Variant: a type-safe union (final proposal)](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/p0088r3.html)
+  The ISO C++ committee paper that introduced `std::variant` into C++17, by
+  Axel Naumann.  Useful background on the design rationale and the
+  `valueless_by_exception` guarantee.
