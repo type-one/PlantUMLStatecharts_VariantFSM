@@ -27,9 +27,9 @@ def usage(prog=None):
     print('   [--clang-format]: run clang-format -i on generated .hpp/.cpp files in output directory')
     print('   [--check-clang-format]: check generated .hpp/.cpp formatting with clang-format --dry-run --Werror')
     print('Example:')
-    print('   sys.argv[1] foo.plantuml cpp Bar')
+    print('   ' + prog + ' foo.plantuml cpp Bar')
     print('Will create foo_bar.hpp and foo_bar.cpp with a state machine name foo_bar (default snake_case)')
-    print('   sys.argv[1] foo.plantuml hpp20 Bar -o ../build/generated')
+    print('   ' + prog + ' foo.plantuml hpp20 Bar -o ../build/generated')
     print('Will create generated files in ../build/generated')
     sys.exit(-1)
 

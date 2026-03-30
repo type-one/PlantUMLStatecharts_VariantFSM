@@ -30,6 +30,7 @@ class Event(object):
     def parse(self, tokens):
         """Parse event tokens from AST into name and argument list."""
         self.params = []
+        self.name = ''
         N = len(tokens)
         if N == 0:
             self.name = ''
@@ -37,7 +38,7 @@ class Event(object):
         for i in range(0, N):
             if tokens[i][0] == '(':
                 if i != N - 1:
-                    self.fatal('Mismatch parentesis for the current event!')
+                    raise ValueError('Malformed event token sequence: argument list must be the last token')
                 self.params = tokens[i].split('(')[1][:-1].split(',')
             elif i == 0:
                 if i < N - 1 and tokens[i + 1][0] == '(':

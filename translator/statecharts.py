@@ -2283,14 +2283,23 @@ class Parser(ParsingMixin, object):
             if not os.path.isfile(grammar_file):
                 self.fatal('File path ' + grammar_file + ' does not exist!')
             try:
-                self.fd = open(grammar_file)
-                self.parser = Lark(self.fd.read())
-                self.fd.close()
-            except Exception as FileNotFoundError:
-                self.fatal('Failed loading grammar file ' + grammar_file + ' for parsing plantuml statechart')
+                with open(grammar_file, 'r') as grammar_stream:
+                    grammar_text = grammar_stream.read()
+            except OSError as ex:
+                self.fatal('Failed loading grammar file ' + grammar_file +
+                           ' for parsing plantuml statechart: ' + str(ex))
+            try:
+                self.parser = Lark(grammar_text)
+            except Exception as ex:
+                self.fatal('Failed parsing grammar file ' + grammar_file + ': ' + str(ex))
         # Make the parser read the plantUML file
         if not os.path.isfile(uml_file):
             self.fatal('File path ' + uml_file + ' does not exist!')
+        # Reset per-translation mutable state so one Parser instance can be reused safely.
+        self.tokens = []
+        self.machines = dict()
+        self.current = StateMachine()
+        self.master = StateMachine()
         self.uml_file = uml_file
         self.output_dir = output_dir
         self.snake_case = snake_case
