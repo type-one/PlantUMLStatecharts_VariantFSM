@@ -442,6 +442,43 @@ def check_unsupported_diagrams_fail_fast():
                 check('Unsupported PlantUML diagram features detected:' in output)
 
 
+def check_auto_flatten_option_behavior():
+        """Regression test for optional --auto-flatten preprocessing.
+
+        - Hierarchical composite diagrams should generate successfully when
+            --auto-flatten is enabled.
+        - Orthogonal/concurrent regions are still unsupported and must fail with
+            explicit message and non-zero exit status.
+        """
+        repo_root = Path(__file__).resolve().parents[2]
+        translator = repo_root / 'translator' / 'statecharts.py'
+
+        with tempfile.TemporaryDirectory(prefix='fsm_reg_autoflat_') as out:
+                out_path = Path(out)
+
+                # Composite/hierarchical sample should be transformed and generated.
+                composite = repo_root / 'examples' / 'SimpleComposite.plantuml'
+                ok = subprocess.run(
+                        ['python3', str(translator), str(composite), 'cpp20', '--auto-flatten', '-o', str(out_path)],
+                        cwd=repo_root,
+                        capture_output=True,
+                        text=True,
+                )
+                check(ok.returncode == 0)
+
+                # Orthogonal sample remains unsupported for now.
+                ortho = repo_root / 'examples' / 'SimpleOrthogonal.plantuml'
+                ko = subprocess.run(
+                        ['python3', str(translator), str(ortho), 'cpp', '--auto-flatten', '-o', str(out_path)],
+                        cwd=repo_root,
+                        capture_output=True,
+                        text=True,
+                )
+                output = (ko.stdout or '') + (ko.stderr or '')
+                check(ko.returncode != 0)
+                check('Auto-flatten currently does not support orthogonal/concurrent regions' in output)
+
+
 def main():
     f = open('../statecharts.ebnf')
     parser = Lark(f.read())
@@ -456,6 +493,7 @@ def main():
     check_no_duplicate_variant_dispatch_lambdas()
     check_normalized_state_action_indent()
     check_unsupported_diagrams_fail_fast()
+    check_auto_flatten_option_behavior()
 
 if __name__ == '__main__':
     main()

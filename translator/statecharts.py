@@ -564,6 +564,177 @@ class Parser(object):
                        '. This translator currently supports only flat FSM diagrams '
                        '(no nested/composite/orthogonal regions).')
 
+    def _transition_suffix_from_ast(self, inst):
+        if len(inst.children) <= 3:
+            return ''
+        parts = []
+        for c in inst.children[3:]:
+            if c.data == 'event':
+                parts.append(' '.join([str(x) for x in c.children]))
+            else:
+                parts.append(str(c.children[0]))
+        return ' : ' + ' '.join(parts)
+
+    def _flatten_state_action_line(self, inst, state_name):
+        what = inst.data[6:]
+        if what in ['entry', 'entering']:
+            return state_name + ' : entry ' + str(inst.children[1].children[0])
+        if what in ['exit', 'leaving']:
+            return state_name + ' : exit ' + str(inst.children[1].children[0])
+        if what == 'comment':
+            if len(inst.children) == 1:
+                return state_name + ' : comment'
+            return state_name + ' : comment ' + str(inst.children[1].children[0])
+        if what in ['do', 'activity']:
+            return state_name + ' : do ' + str(inst.children[1].children[0])
+        if what in ['on', 'event']:
+            out = state_name + ' : on '
+            out += ' '.join([str(x) for x in inst.children[1].children])
+            for i in range(2, len(inst.children)):
+                if inst.children[i].data == 'guard':
+                    out += ' ' + str(inst.children[i].children[0])
+                elif inst.children[i].data in ['uml_action', 'std_action']:
+                    out += ' ' + str(inst.children[i].children[0])
+            return out
+        self.fatal('Auto-flatten does not manage state action token ' + inst.data)
+
+    def _flatten_block(self, children, is_top=False):
+        # Build direct child-composite lookup first.
+        child_blocks = {}
+        for inst in children:
+            if getattr(inst, 'data', None) == 'state_block':
+                child_blocks[str(inst.children[0]).upper()] = inst
+
+        def direct_initial_targets(block_children):
+            targets = []
+            for item in block_children:
+                if getattr(item, 'data', None) != 'transition':
+                    continue
+                if str(item.children[0]).upper() == '[*]':
+                    targets.append(str(item.children[2]).upper())
+            return targets
+
+        def leaves_for_block(block_inst):
+            block_children = block_inst.children[1:]
+            local_child_blocks = {}
+            for item in block_children:
+                if getattr(item, 'data', None) == 'state_block':
+                    local_child_blocks[str(item.children[0]).upper()] = item
+
+            leaves = set()
+            for item in block_children:
+                data = getattr(item, 'data', None)
+                if data == 'state_block':
+                    leaves |= leaves_for_block(item)
+                elif data == 'transition':
+                    o = str(item.children[0]).upper()
+                    d = str(item.children[2]).upper()
+                    if o not in ['[*]', '*'] and o not in local_child_blocks:
+                        leaves.add(o)
+                    if d not in ['[*]', '*'] and d not in local_child_blocks:
+                        leaves.add(d)
+                elif data and data.startswith('state_'):
+                    s = str(item.children[0]).upper()
+                    if s not in local_child_blocks:
+                        leaves.add(s)
+            return leaves
+
+        def initial_leaves_for_block(block_inst):
+            block_children = block_inst.children[1:]
+            local_child_blocks = {}
+            for item in block_children:
+                if getattr(item, 'data', None) == 'state_block':
+                    local_child_blocks[str(item.children[0]).upper()] = item
+
+            result = set()
+            for target in direct_initial_targets(block_children):
+                if target in local_child_blocks:
+                    result |= initial_leaves_for_block(local_child_blocks[target])
+                else:
+                    result.add(target)
+            if len(result) == 0:
+                self.fatal('Auto-flatten requires each composite state to define an initial transition [*] -> State')
+            return result
+
+        def resolve_origins(name):
+            name = name.upper()
+            if name in child_blocks:
+                return sorted(leaves_for_block(child_blocks[name]))
+            return [name]
+
+        def resolve_dests(name):
+            name = name.upper()
+            if name in child_blocks:
+                return sorted(initial_leaves_for_block(child_blocks[name]))
+            return [name]
+
+        lines = []
+
+        # Recurse first to flatten nested blocks.
+        for inst in children:
+            if getattr(inst, 'data', None) == 'state_block':
+                lines.extend(self._flatten_block(inst.children[1:], False))
+
+        # Expand transitions/state actions for this block level.
+        for inst in children:
+            data = getattr(inst, 'data', None)
+            if data == 'transition':
+                origin = str(inst.children[0]).upper()
+                arrow = str(inst.children[1])
+                dest = str(inst.children[2]).upper()
+
+                if (not is_top) and origin == '[*]':
+                    # Internal composite initial transition: consumed by flattening.
+                    continue
+
+                origins = resolve_origins(origin)
+                dests = resolve_dests(dest)
+                suffix = self._transition_suffix_from_ast(inst)
+
+                for o in origins:
+                    for d in dests:
+                        lines.append(o + ' ' + arrow + ' ' + d + suffix)
+            elif data and data.startswith('state_') and data != 'state_block':
+                state_name = str(inst.children[0]).upper()
+                mapped = resolve_origins(state_name)
+                for s in mapped:
+                    lines.append(self._flatten_state_action_line(inst, s))
+            elif data in ['comment', 'note', 'ortho_block']:
+                if data == 'ortho_block':
+                    self.fatal('Auto-flatten currently does not support orthogonal/concurrent regions')
+                continue
+
+        return lines
+
+    def auto_flatten_unsupported_diagram(self):
+        flattened = ['@startuml']
+        for inst in self.ast.children:
+            data = getattr(inst, 'data', None)
+            if data == 'cpp':
+                flattened.append("'" + str(inst.children[0]) + ' ' + str(inst.children[1]).strip())
+            elif data == 'comment':
+                flattened.append("'" + str(inst.children[0]))
+            elif data == 'skin':
+                # Lark keeps only FREE_TEXT as child for this rule.
+                flattened.append('skin ' + str(inst.children[0]))
+            elif data == 'state_block':
+                flattened.extend(self._flatten_block(inst.children[1:], False))
+            elif data == 'transition':
+                # Top-level transitions may target a composite and therefore need flatten expansion.
+                flattened.extend(self._flatten_block([inst], True))
+            elif data and data.startswith('state_') and data != 'state_block':
+                flattened.extend(self._flatten_block([inst], True))
+            elif data == 'ortho_block':
+                self.fatal('Auto-flatten currently does not support orthogonal/concurrent regions')
+            elif data in ['note']:
+                continue
+        flattened.append('@enduml')
+
+        try:
+            self.ast = self.parser.parse('\n'.join(flattened) + '\n')
+        except Exception as ex:
+            self.fatal('Auto-flatten failed to produce a valid intermediate diagram: ' + str(ex))
+
     ###########################################################################
     ### Generate a separator line for function.
     ### param[in] spaces the number of spaces char to print.
@@ -2963,7 +3134,8 @@ class Parser(object):
                     self.fatal('Formatting failed for generated file ' + str(file_path))
 
     def translate(self, uml_file, cpp_or_hpp, postfix, output_dir='.', snake_case=True,
-                  namespace='', gen_mode='inline', clang_format_mode='off', thread_safe=False):
+                  namespace='', gen_mode='inline', clang_format_mode='off', thread_safe=False,
+                  auto_flatten=False):
         # Make the parser understand the plantUML grammar
         if self.parser == None:
             grammar_file = str(Path(__file__).resolve().with_name('statecharts.ebnf'))
@@ -2988,6 +3160,8 @@ class Parser(object):
         self.fd = open(self.uml_file, 'r')
         self.ast = self.parser.parse(self.fd.read())
         self.fd.close()
+        if auto_flatten:
+            self.auto_flatten_unsupported_diagram()
         self.assert_supported_diagram()
         # Create the main state machine
         self.current = StateMachine()
@@ -3021,7 +3195,7 @@ class Parser(object):
 ### Display command line usage
 ###############################################################################
 def usage():
-    print('Command line: ' + sys.argv[0] + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>] [--thread-safe] [--clang-format|--check-clang-format]')
+    print('Command line: ' + sys.argv[0] + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>] [--thread-safe] [--auto-flatten] [--clang-format|--check-clang-format]')
     print('Where:')
     print('   <plantuml file>: the path of a plantuml statechart')
     print('   "cpp"           : generate C++11 split output (.hpp + .cpp include unit)')
@@ -3034,6 +3208,7 @@ def usage():
     print('   [-c|--camel]: use CamelCase naming for generated symbols')
     print('   [-n|--namespace <namespace>]: optional C++ namespace for generated class')
     print('   [--thread-safe]: generate mutex-protected FSM code')
+    print('   [--auto-flatten]: attempt to flatten hierarchical composites into a flat FSM before generation (orthogonal regions are still unsupported)')
     print('   [--clang-format]: run clang-format -i on generated .hpp/.cpp files in output directory')
     print('   [--check-clang-format]: check generated .hpp/.cpp formatting with clang-format --dry-run --Werror')
     print('Example:')
@@ -3064,6 +3239,7 @@ def main():
     gen_mode = 'inline'
     clang_format_mode = 'off'
     thread_safe = False
+    auto_flatten = False
     i = 3
     while i < argc:
         arg = sys.argv[i]
@@ -3101,6 +3277,10 @@ def main():
             thread_safe = True
             i += 1
             continue
+        if arg == '--auto-flatten':
+            auto_flatten = True
+            i += 1
+            continue
 
         if postfix == '':
             postfix = arg
@@ -3113,7 +3293,8 @@ def main():
     p = Parser()
     p.translate(sys.argv[1], sys.argv[2], postfix, output_dir,
                 snake_case=snake_case, namespace=namespace, gen_mode=gen_mode,
-                clang_format_mode=clang_format_mode, thread_safe=thread_safe)
+                clang_format_mode=clang_format_mode, thread_safe=thread_safe,
+                auto_flatten=auto_flatten)
 
 if __name__ == '__main__':
     main()

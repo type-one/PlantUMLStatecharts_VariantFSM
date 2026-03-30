@@ -129,7 +129,7 @@ python3 -m pip install networkx lark
 ## Command line
 
 ```
-./statecharts.py <plantuml statechart file> <langage> [name] [-o output_dir] [-s|--snake] [-c|--camel] [-n namespace]
+./statecharts.py <plantuml statechart file> <langage> [name] [-o output_dir] [-s|--snake] [-c|--camel] [-n namespace] [--auto-flatten]
 ```
 
 Where:
@@ -151,6 +151,10 @@ Where:
 - `-n namespace` / `--namespace namespace` is optional and wraps the generated
   class in the given C++ namespace (e.g. `-n myapp` or `-n com::acme`).  The
   generated unit-test file adds a matching `using namespace ::myapp;` directive.
+- `--auto-flatten` is optional and attempts to flatten hierarchical/composite
+  state blocks into a flat FSM before generation.
+  Current limits: orthogonal/concurrent regions (`--` / `||`) are still not
+  supported and will still fail fast with a non-zero exit.
 
 Example:
 ```
@@ -177,6 +181,11 @@ Creates `foo_controller.hpp` (full definition) and `foo_controller.cpp` (stub).
 Generate into a specific output directory:
 ```
 ./statecharts.py foo.plantuml hpp20 controller -o ../build/generated
+
+Attempt auto-flattening of hierarchical composites before generation:
+```
+./statecharts.py examples/SimpleComposite.plantuml cpp20 --auto-flatten -o ../build/generated
+```
 ```
 
 Generate with `snake_case` naming convention and a C++ namespace:
