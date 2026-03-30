@@ -32,9 +32,11 @@ import subprocess
 try:
     from .naming import camel_to_snake, CPP_RESERVED_IDENTIFIERS
     from .model import Event, Transition, StateMachine
+    from .parsing import ParsingMixin
 except ImportError:
     from naming import camel_to_snake, CPP_RESERVED_IDENTIFIERS
     from model import Event, Transition, StateMachine
+    from parsing import ParsingMixin
 
 
 ###############################################################################
@@ -56,7 +58,13 @@ class bcolors:
 ### into a C++ file state machine holding some unit tests.
 ### See https://plantuml.com/fr/state-diagram
 ###############################################################################
-class Parser(object):
+class Parser(ParsingMixin, object):
+    """Main translator orchestrator.
+
+    Parsing and AST normalization are provided by `ParsingMixin`, while this
+    class keeps generation, naming, formatting, and output orchestration.
+    """
+
     def __init__(self):
         # Context-free language parser (Lark lib)
         self.parser = None
@@ -106,238 +114,6 @@ class Parser(object):
         print(f"{bcolors.FAIL}   FATAL in the state machine " + self.current.name + \
               ": " + msg + f"{bcolors.ENDC}")
         sys.exit(-1)
-
-    ###########################################################################
-    ### Enforce translator policy: only flat FSM diagrams are supported.
-    ### We fail early before building partial graph state to avoid backend-
-    ### specific crashes or inconsistent behavior.
-    ###########################################################################
-    def assert_supported_diagram(self, auto_flatten=False):
-        unsupported = set()
-
-        def visit(node):
-            data = getattr(node, 'data', None)
-            if data == 'state_block':
-                unsupported.add('composite/hierarchical states (state blocks)')
-            elif data == 'ortho_block':
-                unsupported.add('orthogonal/concurrent regions')
-            for child in getattr(node, 'children', []):
-                # Only recurse on tree-like nodes.
-                if hasattr(child, 'children'):
-                    visit(child)
-
-        visit(self.ast)
-
-        if unsupported:
-            details = '; '.join(sorted(unsupported))
-            hint = ''
-            if ('composite/hierarchical states (state blocks)' in unsupported) and (not auto_flatten):
-                hint = ' Try again with --auto-flatten for hierarchical/composite diagrams.'
-            self.fatal('Unsupported PlantUML diagram features detected: ' + details +
-                       '. This translator currently supports only flat FSM diagrams '
-                       '(no nested/composite/orthogonal regions).' + hint)
-
-    def _transition_suffix_from_ast(self, inst):
-        if len(inst.children) <= 3:
-            return ''
-        parts = []
-        for c in inst.children[3:]:
-            if c.data == 'event':
-                parts.append(' '.join([str(x) for x in c.children]))
-            else:
-                parts.append(str(c.children[0]))
-        return ' : ' + ' '.join(parts)
-
-    def _flatten_state_action_line(self, inst, state_name):
-        what = inst.data[6:]
-        if what in ['entry', 'entering']:
-            return state_name + ' : entry ' + str(inst.children[1].children[0])
-        if what in ['exit', 'leaving']:
-            return state_name + ' : exit ' + str(inst.children[1].children[0])
-        if what == 'comment':
-            if len(inst.children) == 1:
-                return state_name + ' : comment'
-            return state_name + ' : comment ' + str(inst.children[1].children[0])
-        if what in ['do', 'activity']:
-            return state_name + ' : do ' + str(inst.children[1].children[0])
-        if what in ['on', 'event']:
-            out = state_name + ' : on '
-            out += ' '.join([str(x) for x in inst.children[1].children])
-            for i in range(2, len(inst.children)):
-                if inst.children[i].data == 'guard':
-                    out += ' ' + str(inst.children[i].children[0])
-                elif inst.children[i].data in ['uml_action', 'std_action']:
-                    out += ' ' + str(inst.children[i].children[0])
-            return out
-        self.fatal('Auto-flatten does not manage state action token ' + inst.data)
-
-    def _flatten_block(self, children, is_top=False, prefix=''):
-        # Build direct child-composite lookup first.
-        child_blocks = {}
-        for inst in children:
-            if getattr(inst, 'data', None) == 'state_block':
-                child_blocks[str(inst.children[0]).upper()] = inst
-
-        local_leaf_names = set()
-        for item in children:
-            data = getattr(item, 'data', None)
-            if data == 'transition':
-                o = str(item.children[0]).upper()
-                d = str(item.children[2]).upper()
-                if o not in ['[*]', '*'] and o not in child_blocks:
-                    local_leaf_names.add(o)
-                if d not in ['[*]', '*'] and d not in child_blocks:
-                    local_leaf_names.add(d)
-            elif data and data.startswith('state_') and data != 'state_block':
-                s = str(item.children[0]).upper()
-                if s not in child_blocks:
-                    local_leaf_names.add(s)
-
-        def direct_initial_targets(block_children):
-            targets = []
-            for item in block_children:
-                if getattr(item, 'data', None) != 'transition':
-                    continue
-                if str(item.children[0]).upper() == '[*]':
-                    targets.append(str(item.children[2]).upper())
-            return targets
-
-        def leaves_for_block(block_inst, block_prefix):
-            block_children = block_inst.children[1:]
-            local_child_blocks = {}
-            for item in block_children:
-                if getattr(item, 'data', None) == 'state_block':
-                    local_child_blocks[str(item.children[0]).upper()] = item
-
-            local_leafs = set()
-            for item in block_children:
-                data = getattr(item, 'data', None)
-                if data == 'transition':
-                    o = str(item.children[0]).upper()
-                    d = str(item.children[2]).upper()
-                    if o not in ['[*]', '*'] and o not in local_child_blocks:
-                        local_leafs.add(o)
-                    if d not in ['[*]', '*'] and d not in local_child_blocks:
-                        local_leafs.add(d)
-                elif data and data.startswith('state_') and data != 'state_block':
-                    s = str(item.children[0]).upper()
-                    if s not in local_child_blocks:
-                        local_leafs.add(s)
-
-            leaves = set()
-            for item in block_children:
-                data = getattr(item, 'data', None)
-                if data == 'state_block':
-                    child_name = str(item.children[0]).upper()
-                    leaves |= leaves_for_block(item, block_prefix + child_name + '_')
-                elif data in ['transition'] or (data and data.startswith('state_') and data != 'state_block'):
-                    for leaf in local_leafs:
-                        leaves.add(block_prefix + leaf)
-            if len(leaves) == 0:
-                # Empty state blocks behave like leaf states.
-                leaves.add(block_prefix[:-1])
-            return leaves
-
-        def initial_leaves_for_block(block_inst, block_prefix):
-            block_children = block_inst.children[1:]
-            local_child_blocks = {}
-            for item in block_children:
-                if getattr(item, 'data', None) == 'state_block':
-                    local_child_blocks[str(item.children[0]).upper()] = item
-
-            result = set()
-            for target in direct_initial_targets(block_children):
-                if target in local_child_blocks:
-                    result |= initial_leaves_for_block(local_child_blocks[target], block_prefix + target + '_')
-                else:
-                    result.add(block_prefix + target)
-            if len(result) == 0 and len(block_children) == 0:
-                # Empty state blocks are leaves and do not need an internal [*] transition.
-                result.add(block_prefix[:-1])
-            if len(result) == 0:
-                self.fatal('Auto-flatten requires each composite state to define an initial transition [*] -> State')
-            return result
-
-        def resolve_origins(name):
-            name = name.upper()
-            if name in child_blocks:
-                return sorted(leaves_for_block(child_blocks[name], prefix + name + '_'))
-            if name in local_leaf_names:
-                return [prefix + name]
-            return [name]
-
-        def resolve_dests(name):
-            name = name.upper()
-            if name in child_blocks:
-                return sorted(initial_leaves_for_block(child_blocks[name], prefix + name + '_'))
-            if name in local_leaf_names:
-                return [prefix + name]
-            return [name]
-
-        lines = []
-
-        # Recurse first to flatten nested blocks.
-        for inst in children:
-            if getattr(inst, 'data', None) == 'state_block':
-                child_name = str(inst.children[0]).upper()
-                lines.extend(self._flatten_block(inst.children[1:], False, prefix + child_name + '_'))
-
-        # Expand transitions/state actions for this block level.
-        for inst in children:
-            data = getattr(inst, 'data', None)
-            if data == 'transition':
-                origin = str(inst.children[0]).upper()
-                arrow = str(inst.children[1])
-                dest = str(inst.children[2]).upper()
-
-                if (not is_top) and origin == '[*]':
-                    # Internal composite initial transition: consumed by flattening.
-                    continue
-
-                origins = resolve_origins(origin)
-                dests = resolve_dests(dest)
-                suffix = self._transition_suffix_from_ast(inst)
-
-                for o in origins:
-                    for d in dests:
-                        lines.append(o + ' ' + arrow + ' ' + d + suffix)
-            elif data and data.startswith('state_') and data != 'state_block':
-                state_name = str(inst.children[0]).upper()
-                mapped = resolve_origins(state_name)
-                for s in mapped:
-                    lines.append(self._flatten_state_action_line(inst, s))
-            elif data in ['comment', 'note', 'ortho_block']:
-                if data == 'ortho_block':
-                    self.fatal('Auto-flatten currently does not support orthogonal/concurrent regions')
-                continue
-
-        return lines
-
-    def auto_flatten_unsupported_diagram(self):
-        flattened = ['@startuml']
-        operational = []
-        for inst in self.ast.children:
-            data = getattr(inst, 'data', None)
-            if data == 'cpp':
-                flattened.append("'" + str(inst.children[0]) + ' ' + str(inst.children[1]).strip())
-            elif data == 'comment':
-                flattened.append("'" + str(inst.children[0]))
-            elif data == 'skin':
-                # Lark keeps only FREE_TEXT as child for this rule.
-                flattened.append('skin ' + str(inst.children[0]))
-            elif data in ['state_block', 'transition'] or (data and data.startswith('state_') and data != 'state_block'):
-                operational.append(inst)
-            elif data == 'ortho_block':
-                self.fatal('Auto-flatten currently does not support orthogonal/concurrent regions')
-            elif data in ['note']:
-                continue
-        flattened.extend(self._flatten_block(operational, True, ''))
-        flattened.append('@enduml')
-
-        try:
-            self.ast = self.parser.parse('\n'.join(flattened) + '\n')
-        except Exception as ex:
-            self.fatal('Auto-flatten failed to produce a valid intermediate diagram: ' + str(ex))
 
     ###########################################################################
     ### Generate a separator line for function.
@@ -397,6 +173,7 @@ class Parser(object):
         self.fd.write(' ' * 4 * depth)
 
     def emit_indented_code(self, code, depth):
+        """Emit non-empty lines of raw code with a target indentation depth."""
         if code == '':
             return
         for raw_line in code.splitlines():
@@ -407,65 +184,86 @@ class Parser(object):
             self.fd.write(line + '\n')
 
     def fmt_name(self, name):
+        """Apply naming convention and avoid reserved C++ identifiers."""
         candidate = camel_to_snake(name) if self.snake_case else name
         if candidate in CPP_RESERVED_IDENTIFIERS:
             return candidate + '_id'
         return candidate
 
     def enum_suffix(self):
+        """Return enum type suffix according to the selected naming style."""
         return '_states' if self.snake_case else 'States'
 
     def mock_class_name(self):
+        """Return generated mock class name used by unit-test output."""
         return ('mock_' + self.current.class_name) if self.snake_case else ('Mock' + self.current.class_name)
 
     def test_suite_name(self):
+        """Return generated test suite name for the current state machine."""
         return self.current.class_name + ('_tests' if self.snake_case else 'Tests')
 
     def tests_file_suffix(self):
+        """Return generated test file suffix based on naming convention."""
         return '_tests.cpp' if self.snake_case else 'Tests.cpp'
 
     def variant_state_alias(self):
+        """Return helper alias name used by the C++20 variant backend."""
         return 'fsm_state' if self.snake_case else 'FsmState'
 
     def runtime_base_template_arguments(self):
+        """Build template arguments for the runtime state_machine base type."""
         args = [self.current.class_name, self.current.enum_name]
         if self.thread_safe:
             args.append('true')
         return ', '.join(args)
 
     def runtime_base_class_name(self):
+        """Return runtime base class symbol according to naming convention."""
         return 'state_machine' if self.snake_case else 'StateMachine'
 
     def runtime_base_class_qualified_name(self):
+        """Return fully qualified runtime base class symbol."""
         return 'fsm::' + self.runtime_base_class_name()
 
     def runtime_transition_type(self):
+        """Return runtime transition struct symbol according to naming convention."""
         return 'transition' if self.snake_case else 'Transition'
 
     def runtime_transitions_type(self):
+        """Return runtime transitions container symbol according to naming convention."""
         return 'transitions' if self.snake_case else 'Transitions'
 
     def namespace_qualified(self, symbol):
+        """Qualify a symbol with the configured namespace, if any."""
         if self.namespace == '':
             return symbol
         return '::' + self.namespace + '::' + symbol
 
     def test_class_name(self):
+        """Return namespace-qualified generated class name for test code."""
         return self.namespace_qualified(self.current.class_name)
 
     def test_enum_name(self):
+        """Return namespace-qualified generated enum name for test code."""
         return self.namespace_qualified(self.current.enum_name)
 
     def state_enum_for_tests(self, state):
+        """Return fully qualified enum constant string for one state in tests."""
         return self.test_enum_name() + '::' + self.state_name(state)
 
     def method_stem(self, snake_name, camel_name):
+        """Pick snake_case or CamelCase method stem based on configured naming."""
         return snake_name if self.snake_case else camel_name
 
     def active_method_name(self):
+        """Return generated 'is active' query method name."""
         return self.method_stem('is_active', 'isActive')
 
     def _extract_bare_called_functions(self, code):
+        """Extract simple callable identifiers from a code fragment.
+
+        This is intentionally heuristic and used only for generating TODO stubs.
+        """
         if code == '':
             return set()
         ignored = {
@@ -481,6 +279,7 @@ class Parser(object):
         return names
 
     def _known_generated_method_names(self):
+        """Collect callback/method names already generated by the translator."""
         names = {
             self.current.class_name,
             'enter',
@@ -509,6 +308,7 @@ class Parser(object):
         return names
 
     def _missing_user_call_stubs(self):
+        """Return unresolved callback names referenced by model code snippets."""
         called = set()
         for origin, destination in list(self.current.graph.edges):
             tr = self.current.graph[origin][destination]['data']
@@ -524,6 +324,7 @@ class Parser(object):
         return sorted(called - known - declared_in_user_code)
 
     def emit_client_code_section(self):
+        """Emit user-provided '[code]' snippets and fallback TODO callback stubs."""
         self.fd.write(self.current.extra_code.code)
         stubs = self._missing_user_call_stubs()
         if len(stubs) == 0:
@@ -539,6 +340,7 @@ class Parser(object):
             self.indent(1), self.fd.write('}\n')
 
     def generate_namespace_begin(self):
+        """Emit opening namespace blocks for generated C++ output."""
         if self.namespace == '':
             return
         for ns in self.namespace.split('::'):
@@ -546,6 +348,7 @@ class Parser(object):
         self.fd.write('\n')
 
     def generate_namespace_end(self):
+        """Emit closing namespace blocks matching `generate_namespace_begin`."""
         if self.namespace == '':
             return
         self.fd.write('\n')
@@ -556,12 +359,14 @@ class Parser(object):
     ### Generate #include "foo.h" or #include <foo.h>
     ###########################################################################
     def generate_include(self, indent, b, file, e):
+        """Emit one C/C++ include directive using caller-provided delimiters."""
         self.fd.write('#include ' + b + file + e + '\n')
 
     ###########################################################################
     ### You can add here your copyright, license ...
     ###########################################################################
     def generate_common_header(self):
+        """Emit the standard generated-file banner and legal disclaimer."""
         self.fd.write('// ############################################################################\n')
         self.fd.write('// This file has been generated on ')
         self.fd.write(date.today().strftime("%B %d, %Y") + '\n')
@@ -583,6 +388,7 @@ class Parser(object):
     ### param[in] hpp set to True if generated file is a C++ header file.
     ###########################################################################
     def generate_header(self, hpp):
+        """Emit generated file prologue, includes, warnings, and user header snippets."""
         indent = 1 if hpp else 0
         self.generate_common_header()
         if hpp:
@@ -617,6 +423,7 @@ class Parser(object):
     ### param[in] hpp set to True if generated file is a C++ header file.
     ###########################################################################
     def generate_footer(self, hpp):
+        """Emit user footer snippets and close the include guard for headers."""
         self.fd.write(self.current.extra_code.footer)
         if hpp:
             self.fd.write('#endif // ' + self.current.class_name.upper() + '_HPP')
@@ -625,6 +432,7 @@ class Parser(object):
     ### Code generator: generate the states for the state machine as enums.
     ###########################################################################
     def generate_state_enums(self):
+        """Emit the enum that lists client states plus mandatory internal states."""
         self.generate_function_comment('States of the state machine.')
         self.fd.write('enum class ' + self.current.enum_name + '\n{\n')
         self.indent(1), self.fd.write('// Client states:\n')
@@ -642,6 +450,7 @@ class Parser(object):
     ### Code generator: generate the function that stringify states.
     ###########################################################################
     def generate_stringify_function(self):
+        """Emit inline helper that maps state enum values to string names."""
         self.generate_function_comment('Convert enum states to human readable string.')
         self.fd.write('static inline const char* stringify(' + self.current.enum_name + \
                       ' const state)\n{\n')
@@ -658,6 +467,7 @@ class Parser(object):
     ### return the C++ name.
     ###########################################################################
     def state_name(self, state):
+        """Map raw PlantUML state names to generated C++ enum/member identifiers."""
         if state == '[*]':
             return self.fmt_name('CONSTRUCTOR')
         if state == '*':
@@ -669,6 +479,7 @@ class Parser(object):
     ### param[in] state the PlantUML name of the state.
     ###########################################################################
     def state_enum(self, state):
+        """Return the fully qualified enum constant for a given state."""
         return self.current.enum_name + '::' + self.state_name(state)
 
     ###########################################################################
@@ -678,6 +489,7 @@ class Parser(object):
     ### param[in] class_name if True prepend the class name.
     ###########################################################################
     def guard_function(self, source, destination, class_name=False):
+        """Return generated guard callback name for one transition."""
         s = self.current.class_name + '::' if class_name else ''
         return s + self.method_stem('on_guarding_', 'onGuarding_') + self.state_name(source) + '_' + self.state_name(destination)
 
@@ -688,6 +500,7 @@ class Parser(object):
     ### param[in] class_name if True prepend the class name.
     ###########################################################################
     def transition_function(self, source, destination, class_name=False):
+        """Return generated transition-action callback name for one transition."""
         s = self.current.class_name + '::' if class_name else ''
         return s + self.method_stem('on_transitioning_', 'onTransitioning_') + self.state_name(source) + '_' + self.state_name(destination)
 
@@ -697,6 +510,7 @@ class Parser(object):
     ### param[in] entering if True for entering actions else for leaving action.
     ###########################################################################
     def state_entering_function(self, state, class_name=True):
+        """Return generated state-entry callback name."""
         s = self.current.class_name + '::' if class_name else ''
         return s + self.method_stem('on_entering_', 'onEntering_') + self.state_name(state)
 
@@ -706,6 +520,7 @@ class Parser(object):
     ### param[in] entering if True for entering actions else for leaving action.
     ###########################################################################
     def state_leaving_function(self, state, class_name=True):
+        """Return generated state-exit callback name."""
         s = self.current.class_name + '::' if class_name else ''
         return s + self.method_stem('on_leaving_', 'onLeaving_') + self.state_name(state)
 
@@ -715,6 +530,7 @@ class Parser(object):
     ### param[in] entering if True for entering actions else for leaving action.
     ###########################################################################
     def state_internal_function(self, state, class_name=True):
+        """Return generated internal no-event handler name for a state."""
         s = self.current.class_name + '::' if class_name else ''
         return s + self.method_stem('on_internal_', 'onInternal_') + self.state_name(state)
 
@@ -724,6 +540,7 @@ class Parser(object):
     ### param[in] entering if True for entering actions else for leaving action.
     ###########################################################################
     def state_activity_function(self, state, class_name=True):
+        """Return generated state-activity callback name."""
         s = self.current.class_name + '::' if class_name else ''
         return s + self.method_stem('on_activity_', 'onActivity_') + self.state_name(state)
 
@@ -732,6 +549,7 @@ class Parser(object):
     ### param[in] fsm the nested state machine.
     ###########################################################################
     def child_machine_instance(self, fsm):
+        """Return member variable name used for a nested/generated child machine."""
         if isinstance(fsm, str):
             return 'm_nested_' + fsm.lower()
         return 'm_nested_' + fsm.name.lower()
@@ -740,6 +558,7 @@ class Parser(object):
     ### Generate the PlantUML code from the graph.
     ###########################################################################
     def generate_plantuml_code(self, comm=''):
+        """Render the interpreted in-memory graph back to PlantUML text."""
         code = ''
         for node in list(self.current.graph.nodes()):
             if node in ['[*]', '*']:
@@ -758,6 +577,7 @@ class Parser(object):
     ### Generate the PlantUML file from the graph structure.
     ###########################################################################
     def generate_plantuml_file(self):
+        """Write interpreted PlantUML snapshots for each generated machine."""
         for self.current in self.machines.values():
             filename = os.path.join(self.output_dir,
                                     self.current.name + '-interpreted.plantuml')
@@ -771,6 +591,7 @@ class Parser(object):
     ### Generate the comment for the state machine class.
     ###########################################################################
     def generate_class_comment(self):
+        """Emit class-level documentation, including embedded interpreted PlantUML."""
         if self.current.extra_code.brief != '':
             comment = self.current.extra_code.brief
         else:
@@ -786,6 +607,7 @@ class Parser(object):
     ### the table is not generated.
     ###########################################################################
     def generate_table_of_states(self, base_depth=2):
+        """Emit sparse runtime state table entries with state callbacks."""
         for state in list(self.current.graph.nodes):
             s = self.current.graph.nodes[state]['data']
             # Nothing to do with initial state
@@ -819,6 +641,7 @@ class Parser(object):
     ### TODO missing generating ": m_foo(foo),\n" ...
     ###########################################################################
     def generate_constructor_method(self):
+        """Emit constructor implementation for runtime initialization and user init code."""
         self.generate_method_comment('Default constructor. Start from initial '
                                      'state and call it actions.')
         self.indent(1)
@@ -836,6 +659,7 @@ class Parser(object):
     ### Generate the code of the state machine destructor method.
     ###########################################################################
     def generate_destructor_method(self):
+        """Emit destructor declaration/definition used by mock-enabled builds."""
         self.generate_method_comment('Needed because of virtual methods (define MOCKABLE=virtual to enable GMock).')
         self.indent(1)
         self.fd.write('MOCKABLE ~' + self.current.class_name + '() = default;\n\n')
@@ -844,6 +668,7 @@ class Parser(object):
     ### Generate the state machine initial entering method.
     ###########################################################################
     def generate_enter_method(self):
+        """Emit enter() implementation resetting runtime state and initial transition."""
         self.generate_method_comment('Reset the state machine and nested machines. Do the initial internal transition.')
         self.indent(1), self.fd.write('void enter()\n')
         self.indent(1), self.fd.write('{\n')
@@ -866,6 +691,7 @@ class Parser(object):
     ### Generate the state machine exting method.
     ###########################################################################
     def generate_exit_method(self):
+        """Emit exit() implementation resetting runtime state and nested machines."""
         self.generate_method_comment('Reset the state machine and nested machines. Do the initial internal transition.')
         self.indent(1), self.fd.write('void exit()\n')
         self.indent(1), self.fd.write('{\n')
@@ -889,6 +715,7 @@ class Parser(object):
 #            # Generate the table of transitions
     ###########################################################################
     def generate_event_methods(self):
+        """Emit public external-event methods and their transition dispatch tables."""
         # Broadcasr external events to nested state machine
         for (sm, e) in self.current.broadcasts:
             self.generate_method_comment('Broadcast external event.')
@@ -933,6 +760,7 @@ class Parser(object):
     ### Generate guards and actions on transitions.
     ###########################################################################
     def generate_transition_methods(self):
+        """Emit generated guard/action methods attached to graph transitions."""
         transitions = list(self.current.graph.edges)
         for origin, destination in transitions:
             tr = self.current.graph[origin][destination]['data']
@@ -961,6 +789,7 @@ class Parser(object):
     ### Generate leaving and entering actions associated to states.
     ###########################################################################
     def generate_state_methods(self):
+        """Emit generated entry/exit/internal/activity methods attached to states."""
         nodes = list(self.current.graph.nodes)
         for node in nodes:
             state = self.current.graph.nodes[node]['data']
@@ -1000,6 +829,7 @@ class Parser(object):
     ### Entry point to generate the whole state machine class and all its methods.
     ###########################################################################
     def generate_state_machine_class(self):
+        """Emit complete single-header C++11 state machine class definition."""
         self.generate_class_comment()
         self.fd.write('class ' + self.current.class_name + ' : public ' + self.runtime_base_class_qualified_name() + '<')
         self.fd.write(self.runtime_base_template_arguments() + '>\n')
@@ -1029,10 +859,12 @@ class Parser(object):
         self.fd.write('};\n\n')
 
     def generate_stringify_declaration(self):
+        """Emit stringify() forward declaration for split generation mode."""
         self.generate_function_comment('Convert enum states to human readable string.')
         self.fd.write('const char* stringify(' + self.current.enum_name + ' const state);\n\n')
 
     def generate_stringify_definition(self):
+        """Emit stringify() definition for split generation mode."""
         self.generate_function_comment('Convert enum states to human readable string.')
         self.fd.write('const char* stringify(' + self.current.enum_name + ' const state)\n{\n')
         self.indent(1), self.fd.write('static const char* s_states[] =\n')
@@ -1044,6 +876,7 @@ class Parser(object):
         self.fd.write('}\n\n')
 
     def generate_state_machine_class_declaration(self):
+        """Emit class declaration used by split C++11 generation mode."""
         self.generate_class_comment()
         self.fd.write('class ' + self.current.class_name + ' : public ' + self.runtime_base_class_qualified_name() + '<')
         self.fd.write(self.runtime_base_template_arguments() + '>\n')
@@ -1101,6 +934,7 @@ class Parser(object):
         self.fd.write('};\n\n')
 
     def generate_state_machine_definitions(self):
+        """Emit out-of-class method definitions for split C++11 generation mode."""
         self.generate_method_comment('Default constructor. Start from initial state and call it actions.')
         self.fd.write(self.current.class_name + '::' + self.current.class_name + '(' + self.current.extra_code.argvs + ')\n')
         self.indent(1), self.fd.write(': ' + self.runtime_base_class_name() + '(' + self.state_enum(self.current.initial_state) + ')')
@@ -2424,303 +2258,13 @@ class Parser(object):
             self.generate_unit_tests_main_file(mainfile, files)
 
     ###########################################################################
-    ### Manage transitions without events: we name them internal event and the
-    ### transition to the next state is made. Since we cannot offer a public
-    ### method 'no event' to make react the state machine we place the transition
-    ### inside the source state as 'on entry' action. We also suppose that
-    ### the state machine is well formed: meaning no several internal events are
-    ### allowed (non determinist switch condition).
-    ###########################################################################
-    def manage_noevents(self):
-        # Make unique the list of states that does not have event on their
-        # output edges
-        states = []
-        for state in list(self.current.graph.nodes()):
-            for dest in list(self.current.graph.neighbors(state)):
-                tr = self.current.graph[state][dest]['data']
-                if (tr.event.name == '') and (state not in states):
-                    states.append(state)
-
-        # Generate the internal transition in the entry action of the source state
-        for state in states:
-            count = 0 # count number of ways
-            code = ''
-            for dest in list(self.current.graph.neighbors(state)):
-                tr = self.current.graph[state][dest]['data']
-                if tr.event.name != '':
-                   continue
-                if tr.guard != '':
-                    if code == '':
-                        code += '        if '
-                    else :
-                        code += '        else if '
-                    code += '(' + self.guard_function(state, dest) + '())\n'
-                elif tr.event.name == '': # Dummy event and dummy guard
-                    if count == 1:
-                        code += '\n#warning "Missformed state machine: missing guard from state ' + state + ' to state ' + dest + '"\n'
-                        code += '        /* MISSING GUARD: if (guard) */\n'
-                    elif count > 1:
-                        code += '\n#warning "Undeterminist State machine detected switching from state ' + state + ' to state ' + dest + '"\n'
-                if tr.event.name == '':
-                    code += '        {\n'
-                    code += '            FSM_LOGD("[' + self.current.class_name.upper() + '][STATE ' + state +  '] Candidate for internal transitioning to state ' + dest + '\\n");\n'
-                    code += '            static const struct ' + self.runtime_base_class_qualified_name() +             '<' + self.runtime_base_template_arguments() + '>::' +             self.runtime_transition_type() + ' tr =\n'
-                    code += '            {\n'
-                    code += '                .destination = ' + self.state_enum(dest) + ',\n'
-                    if tr.action != '':
-                        code += '                .action = &' + self.transition_function(state, dest, True) + ',\n'
-                    code += '            };\n'
-                    code += '            transition(&tr);\n'
-                    code += '        }\n'
-                    count += 1
-            self.current.graph.nodes[state]['data'].internal += code
-
-    ###########################################################################
-    ### Check if the method name is not conflicting with a class method.
-    ###########################################################################
-    def check_valid_method_name(self, name):
-        s = name.split('(')[0]
-        if s in ['start', 'stop', 'state', 'c_str', 'transition' ]:
-            self.warning('The C++ method name ' + name + ' is already used by the base class ' + self.runtime_base_class_name())
-
-    ###########################################################################
-    ### Parse the following plantUML code and store information of the analyse:
-    ###    origin state -> destination state : event [ guard ] / action
-    ###    destination state <- origin state : event [ guard ] / action
-    ### In which event, guard and action are optional.
-    ###########################################################################
-    def parse_transition(self, as_state = False):
-        tr = Transition()
-
-        tr.arrow = self.tokens[1]
-        if tr.arrow[-1] == '>':
-            # Analyse the following plantUML code: "origin state -> destination state ..."
-            tr.origin, tr.destination = self.tokens[0].upper(), self.tokens[2].upper()
-        else:
-            # Analyse the following plantUML code: "destination state <- origin state ..."
-            tr.origin, tr.destination = self.tokens[2].upper(), self.tokens[0].upper()
-
-        # Initial/final states
-        if tr.origin == '[*]':
-            self.current.initial_state = '[*]'
-        elif tr.destination == '[*]':
-            tr.destination = '*'
-            self.current.final_state = '*'
-
-        # Add nodes first to be sure to access them later
-        self.current.add_state(tr.origin)
-        self.current.add_state(tr.destination)
-
-        # Analyse the following optional plantUML code: ": event [ guard ] / action"
-        for i in range(3, len(self.tokens)):
-            if self.tokens[i] == '#event':
-                N = int(self.tokens[i+1])
-                tr.event.parse(self.tokens[i+2:i+2+N])
-                tr.event.name = self.fmt_name(tr.event.name)
-                self.check_valid_method_name(tr.event.name)
-                # Make the main state machine broadcast external events to nested state machine
-                if self.current.parent != None:
-                    self.master.broadcasts.append((self.current.name, tr.event))
-                # Events are optional. If not given, we use them as anonymous internal event.
-                # Store them in a dictionary: "event => (origin, destination) states" to create
-                # the state transition for each event.
-                self.current.lookup_events[tr.event].append((tr.origin, tr.destination))
-            elif self.tokens[i] == '#guard':
-                tr.guard = self.tokens[i + 1][1:-1].strip() # Remove [ and ]
-                self.check_valid_method_name(tr.guard)
-            elif self.tokens[i] == '#uml_action':
-                tr.action = self.tokens[i + 1][1:].strip() # Remove /
-                self.check_valid_method_name(tr.action)
-            elif self.tokens[i] == '#std_action':
-                tr.action = self.tokens[i + 1][6:].strip() # Remove \n--\n
-                self.check_valid_method_name(tr.action)
-
-            # Distinguish a transition cycling to its own state from the "on event" on the state
-            if as_state and (tr.origin == tr.destination):
-                if tr.action == '':
-                    tr.action = '// Dummy action\n'
-                    tr.action += '#warning "no reaction to event ' + tr.event.name
-                    tr.action += ' for internal transition ' + tr.origin + ' -> '
-                    tr.action += tr.origin + '"\n'
-
-        # Store parsed information as edge of the graph
-        self.current.add_transition(tr)
-        self.tokens = []
-
-    ###########################################################################
-    ### Parse the following plantUML code and store information of the analyse.
-    ### param[in] inst: node of the AST.
-    ### Example:
-    ###    State : entry / action
-    ###    State : exit / action
-    ###    State : on event [ guard ] / action
-    ###    State : do / activity
-    ### We also offering some unofficial alternative name:
-    ###    State : entering / action
-    ###    State : leaving / action
-    ###    State : event event [ guard ] / action
-    ###    State : activity / activity
-    ###    State : comment / C++ comment
-    ### FIXME: limitation only one "State : on event [ guard ] / action" allowed!
-    ###########################################################################
-    def parse_state(self, inst):
-        # Sparse test for inst.data in ['state_entry', 'state_exit' ...]
-        what = inst.data[6:]
-        # State name
-        name = inst.children[0].upper()
-        # Create first a node if it does not exist. This is the simplest way
-        # preventing smashing previously initialized values.
-        self.current.add_state(name)
-        # Update state fields
-        state = self.current.graph.nodes[name]['data']
-        if what in ['entry', 'entering']:
-            state.entering += inst.children[1].children[0][1:].strip() + ';\n'
-        elif what in ['exit', 'leaving']:
-            state.leaving += inst.children[1].children[0][1:].strip() + ';\n'
-        elif what == 'comment':
-            state.comment += inst.children[1].children[0][1:].strip()
-        elif what in ['do', 'activity']:
-            state.activity += inst.children[1].children[0][1:].strip()
-        # 'on event' is not sugar syntax to a real transition: since it disables
-        # 'entry' and 'exit' actions but we want create a real graph edege to
-        # help us on graph theory traversal algorithm (like finding cycles) for
-        # unit tests.
-        elif what in ['on', 'event']:
-            self.tokens = [ name, '->', name ]
-            for i in range(1, len(inst.children)):
-                self.tokens.append('#' + str(inst.children[i].data))
-                if inst.children[i].data != 'event':
-                    self.tokens.append(str(inst.children[i].children[0]))
-                else:
-                    self.tokens.append(str(len(inst.children[i].children)))
-                    for j in inst.children[i].children:
-                        self.tokens.append(str(j))
-            self.parse_transition(True)
-        else:
-            self.fatal('Bad syntax describing a state. Unkown token "' + inst.data + '"')
-
-    ###########################################################################
-    ### Extend the PlantUML single-line comments to add extra commands to help
-    ### generating C++ code.
-    ### param[in] token: AST token
-    ### param[in] code: C++ code to store in our context.
-    ### Examples:
-    ### Add code before and after the generated code:
-    ###   '[brief] Message on
-    ###   '[brief] two lines
-    ###   '[header] #include <foo>
-    ###   '[header] class Foo {
-    ###   '[header] private: ...
-    ###   '[header] };
-    ###   '[footer] class Bar {};
-    ### Add extra member functions or member variables:
-    ###   '[code] private:
-    ###   '[code] void extra_method();
-    ### Add extra arguments to the constructor:
-    ###   '[param] Foo foo
-    ###   '[param] Bar bar
-    ###   '[cons] m_foo(foo)
-    ###   '[cons] m_bar(bar)
-    ### Add code in the constructor
-    ###   '[init] bar.x = 42;
-    ### Unit tests:
-    ###   '[test] MockMotorController() : MotorController(42) {}
-    ###########################################################################
-    def parse_extra_code(self, token, code):
-        if token == '[brief]':
-            if self.current.extra_code.brief != '':
-                self.current.extra_code.brief += '\n//! '
-            self.current.extra_code.brief += code
-        elif token == '[header]':
-            self.current.extra_code.header += code
-            self.current.extra_code.header += '\n'
-        elif token == '[footer]':
-            self.current.extra_code.footer += code
-            self.current.extra_code.footer += '\n'
-        elif token == '[param]':
-            if self.current.extra_code.argvs != '':
-                self.current.extra_code.argvs += ', '
-            self.current.extra_code.argvs += code
-        elif token == '[cons]':
-            self.current.extra_code.cons += '\n        , '
-            self.current.extra_code.cons += code
-        elif token == '[init]':
-            self.current.extra_code.init += '        '
-            self.current.extra_code.init += code
-            self.current.extra_code.init += '\n'
-        elif token == '[code]':
-            if code not in ['public:', 'protected:', 'private:']:
-                self.current.extra_code.code += '    '
-            self.current.extra_code.code += code
-            self.current.extra_code.code += '\n'
-        elif token == '[test]':
-            self.current.extra_code.unit_tests += code
-            self.current.extra_code.unit_tests += '\n'
-        else:
-            self.fatal('Token ' + token + ' not yet managed')
-
-    ###########################################################################
-    ### Traverse the Abstract Syntax Tree (AST) of the PlantUML file.
-    ### param[in] inst: node of the AST.
-    ###########################################################################
-    def visit_ast(self, inst):
-        # Parse markers for collecting lines of C++ code
-        if inst.data == 'cpp':
-            self.parse_extra_code(str(inst.children[0]), inst.children[1].strip())
-        # Parse a statechart transition
-        elif inst.data == 'transition':
-            # Note: we have to convert into a list of tokens since parse_state()
-            # can call parse_transition() with a generated code and we do not
-            # reuse the parser to create a temporary AST, instead we pass list
-            # of tokens. TODO: ok this is dirty!
-            self.tokens = [str(inst.children[0]), str(inst.children[1]), str(inst.children[2])]
-            for i in range(3, len(inst.children)):
-                self.tokens.append('#' + str(inst.children[i].data))
-                if inst.children[i].data != 'event':
-                    # guard and actions
-                    self.tokens.append(str(inst.children[i].children[0]))
-                else:
-                    # event can comes in severval tokens
-                    self.tokens.append(str(len(inst.children[i].children)))
-                    for j in inst.children[i].children:
-                        self.tokens.append(str(j))
-            self.parse_transition(False)
-        # Composite and orthogonal states. Thanks to the iteration we can create a new
-        # file holding the nesting state.
-        elif inst.data == 'state_block':
-            # Begin of the recursive operation: save the current state machine
-            backup_fsm = self.current
-            # Make the parser knows the list of state machine (one generated file by state machine)
-            self.current = StateMachine()
-            # Set the new name
-            self.current.name = str(inst.children[0])
-            self.current.class_name = self.fmt_name('Nested' + self.current.name)
-            self.current.enum_name = self.current.class_name + self.enum_suffix()
-            self.machines[self.current.name] = self.current
-            # Create links parent and sibling
-            self.current.parent = backup_fsm
-            backup_fsm.children.append(self.current)
-            # Recursive operation: iterate on the AST
-            for c in inst.children[1:]:
-                self.visit_ast(c)
-            # Begin of the recursive operation: restore the current state machine
-            self.current = backup_fsm
-        # Parse a statechart state
-        elif inst.data[0:6] == 'state_':
-            self.parse_state(inst)
-        # Skip undesired PlantUML syntax
-        elif inst.data in ['comment', 'skin', 'hide']:
-            return
-        else:
-            self.fatal('Token ' + inst.data + ' not yet managed. Please open a GitHub ticket to manage it')
-
-    ###########################################################################
     ### Entry point for translating a plantUML file into a C++ source file.
     ### param[in] uml_file: path to the plantuml file.
     ### param[in] cpp_or_hpp: generated a C++ source file ('cpp') or a C++ header file ('hpp').
     ### param[in] postfix: postfix name for the state machine name.
     ###########################################################################
     def format_generated_files(self, check_only=False):
+        """Run clang-format on generated files, or fail if check mode finds drift."""
         formatter = shutil.which('clang-format')
         if formatter is None:
             self.fatal('clang-format was requested but not found in PATH')
@@ -2759,6 +2303,7 @@ class Parser(object):
     def translate(self, uml_file, cpp_or_hpp, postfix, output_dir='.', snake_case=True,
                   namespace='', gen_mode='inline', clang_format_mode='off', thread_safe=False,
                   auto_flatten=False):
+        """Parse one PlantUML file and generate target C++ artifacts end-to-end."""
         # Make the parser understand the plantUML grammar
         if self.parser == None:
             grammar_file = str(Path(__file__).resolve().with_name('statecharts.ebnf'))
@@ -2818,6 +2363,7 @@ class Parser(object):
 ### Display command line usage
 ###############################################################################
 def usage():
+    """Print CLI usage information and terminate with error status."""
     print('Command line: ' + sys.argv[0] + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>] [--thread-safe] [--auto-flatten] [--clang-format|--check-clang-format]')
     print('Where:')
     print('   <plantuml file>: the path of a plantuml statechart')
@@ -2848,6 +2394,7 @@ def usage():
 ### argv[3] Optional: Postfix name for the state machine class.
 ###############################################################################
 def main():
+    """Parse CLI arguments and dispatch translation with selected options."""
     argc = len(sys.argv)
     if argc < 3:
         usage()
