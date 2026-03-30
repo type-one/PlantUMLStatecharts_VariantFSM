@@ -129,14 +129,14 @@ python3 -m pip install networkx lark
 ## Command line
 
 ```
-./statecharts.py <plantuml statechart file> <langage> [name] [-o output_dir] [-s|--snake] [-c|--camel] [-n namespace] [--auto-flatten]
+./translator/statecharts.py <plantuml statechart file> <target> [name] [-o output_dir] [-s|--snake] [-c|--camel] [-n namespace] [--thread-safe] [--auto-flatten] [--clang-format|--check-clang-format]
 ```
 
 Where:
 - `plantuml statechart file` is the path of the [PlantUML
    statecharts](https://plantuml.com/fr/state-diagram) file as input.  This repo
-   contains [examples](examples/input).
-- `langage` is one of:
+  contains [examples](examples).
+- `target` is one of:
   - `"cpp"` to generate C++11 class-based source file.
   - `"hpp"` to generate C++11 class-based header file.
   - `"hpp20"` to generate a self-contained C++20 `std::variant` / `std::visit` header file (all-in-one).
@@ -151,6 +151,7 @@ Where:
 - `-n namespace` / `--namespace namespace` is optional and wraps the generated
   class in the given C++ namespace (e.g. `-n myapp` or `-n com::acme`).  The
   generated unit-test file adds a matching `using namespace ::myapp;` directive.
+- `--thread-safe` is optional and generates mutex-protected code in emitted FSMs.
 - `--auto-flatten` is optional and attempts to flatten hierarchical/composite
   state blocks into a flat FSM before generation.
   Current limits: orthogonal/concurrent regions (`--` / `||`) are still not
@@ -158,18 +159,20 @@ Where:
   Each composite state must also define an internal initial transition of the
   form `[*] -> SubState`; otherwise flattening fails early because the active
   leaf state cannot be derived unambiguously.
+- `--clang-format` is optional and runs `clang-format -i` on generated `.hpp`/`.cpp` files.
+- `--check-clang-format` is optional and checks formatting without modifying files.
 
 Current repository examples with `--auto-flatten`:
 - `SimpleComposite.plantuml`: generates and compiles in both `cpp` and `cpp20`.
 - `ComplexComposite.plantuml`: generates and compiles in both `cpp` and `cpp20`.
-- `Pompe.plantuml`: still fails early because one composite state does not
-  declare an internal initial transition `[*] -> SubState`.
+- `Pompe.plantuml`: generates successfully in both `cpp` and `cpp20` with
+  `--auto-flatten` (non-fatal model warnings may still be reported).
 - `SimpleOrthogonal.plantuml`: still fails early because orthogonal/concurrent
   regions are not flattened yet.
 
 Example:
 ```
-./statecharts.py foo.plantuml cpp controller
+./translator/statecharts.py foo.plantuml cpp controller
 ```
 
 Will create a `foo_controller.cpp` file with a class name `foo_controller`
@@ -177,31 +180,31 @@ Will create a `foo_controller.cpp` file with a class name `foo_controller`
 
 Generate a self-contained C++20 header:
 ```
-./statecharts.py foo.plantuml hpp20 controller
+./translator/statecharts.py foo.plantuml hpp20 controller
 ```
 
 Will create a `foo_controller.hpp` file using `std::variant` and `std::visit`.
 
 Generate split C++20 header + implementation stub:
 ```
-./statecharts.py foo.plantuml cpp20 controller
+./translator/statecharts.py foo.plantuml cpp20 controller
 ```
 
 Creates `foo_controller.hpp` (full definition) and `foo_controller.cpp` (stub).
 
 Generate into a specific output directory:
 ```
-./statecharts.py foo.plantuml hpp20 controller -o ../build/generated
+./translator/statecharts.py foo.plantuml hpp20 controller -o ../build/generated
 
 Attempt auto-flattening of hierarchical composites before generation:
 ```
-./statecharts.py examples/SimpleComposite.plantuml cpp20 --auto-flatten -o ../build/generated
+./translator/statecharts.py examples/SimpleComposite.plantuml cpp20 --auto-flatten -o ../build/generated
 ```
 ```
 
 Generate with `snake_case` naming convention and a C++ namespace:
 ```
-./statecharts.py foo.plantuml hpp20 -s -n myapp
+./translator/statecharts.py foo.plantuml hpp20 -s -n myapp
 ```
 
 Creates `foo.hpp` with `class foo` inside `namespace myapp { ... }`, and
@@ -247,7 +250,7 @@ that option, generated code contains no mutex member and no locking code.
 Typical C++20 build with thread safety enabled:
 
 ```bash
-./statecharts.py path/to/foo.plantuml hpp20 controller -o build/generated --thread-safe
+./translator/statecharts.py path/to/foo.plantuml hpp20 controller -o build/generated --thread-safe
 g++ --std=c++20 -Wall -Wextra -pthread \
   -Iinclude -Ibuild/generated main.cpp -o build/FooApp
 ```
@@ -255,7 +258,7 @@ g++ --std=c++20 -Wall -Wextra -pthread \
 Typical C++20 generated unit-test build with thread safety enabled:
 
 ```bash
-./statecharts.py path/to/foo.plantuml cpp20 controller -o build/generated --thread-safe
+./translator/statecharts.py path/to/foo.plantuml cpp20 controller -o build/generated --thread-safe
 g++ --std=c++20 -Wall -Wextra -pthread \
   -Iinclude -Ibuild/generated \
   build/generated/foo_controller.cpp \
@@ -330,7 +333,7 @@ You can run binaries. For example:
 ## PlantUML Statecharts syntax
 
 This tool does not pretend to parse the whole PlantUML syntax or implement the
-whols UML statecharts standard. Here is the basic PlantUML statecharts syntax it
+whole UML statecharts standard. Here is the basic PlantUML statecharts syntax it
 can understand:
 - `FromState --> ToState : event [ guard ] / action`
 - `FromState -> ToState : event [ guard ] / action`

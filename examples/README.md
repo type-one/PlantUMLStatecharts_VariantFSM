@@ -117,6 +117,8 @@ flat FSM with the CLI option `--auto-flatten`:
 
 - `SimpleComposite.plantuml`
 - `ComplexComposite.plantuml`
+- `Pompe.plantuml` (generates in both `cpp` and `cpp20`; non-fatal model
+	warnings may still be reported)
 
 ### Still unsupported examples kept in repository
 
@@ -124,5 +126,3 @@ The following diagrams are intentionally kept as unsupported examples or partial
 future-work cases:
 
 - `SimpleOrthogonal.plantuml`: orthogonal/concurrent regions are not flattened yet.
-- `Pompe.plantuml`: composite flattening currently fails because one composite
-	state does not declare an internal initial transition `[*] -> SubState`.
