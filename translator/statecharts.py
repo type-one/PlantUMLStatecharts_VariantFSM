@@ -32,13 +32,13 @@ try:
     from .naming import camel_to_snake, CPP_RESERVED_IDENTIFIERS
     from .model import Event, Transition, StateMachine
     from .parsing import ParsingMixin
-    from .generators import generate_cpp11_backend, generate_cpp20_backend
+    from .generators import generate_cpp11_backend, generate_cpp20_backend, generate_rust_backend
     from .generators.io_helpers import emit_to_file
 except ImportError:
     from naming import camel_to_snake, CPP_RESERVED_IDENTIFIERS
     from model import Event, Transition, StateMachine
     from parsing import ParsingMixin
-    from generators import generate_cpp11_backend, generate_cpp20_backend
+    from generators import generate_cpp11_backend, generate_cpp20_backend, generate_rust_backend
     from generators.io_helpers import emit_to_file
 
 
@@ -2326,8 +2326,10 @@ class Parser(ParsingMixin, object):
         for self.current in self.machines.values():
             self.current.is_determinist()
             self.manage_noevents()
-        # Generate the C++ code
-        if cpp_or_hpp in ('cpp20', 'hpp20'):
+        # Generate target backend code.
+        if cpp_or_hpp == 'rust':
+            generate_rust_backend(self, cpp_or_hpp, False)
+        elif cpp_or_hpp in ('cpp20', 'hpp20'):
             bare = 'hpp' if cpp_or_hpp == 'hpp20' else 'cpp'
             self.generate_variant_cxx_code(bare, False)
         else:
