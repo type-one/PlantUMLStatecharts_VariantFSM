@@ -1,4 +1,5 @@
 *.o
+*.rlib
 *~
 examples/build
 
