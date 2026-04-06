@@ -45,6 +45,7 @@ RUST_RESERVED_IDENTIFIERS = {
 
 def _to_rust_variant(name):
     """Convert an identifier into a Rust enum variant (PascalCase)."""
+    # Split camelCase/PascalCase boundaries before normalizing separators.
     tokenized = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', name)
     parts = re.split(r'[^A-Za-z0-9]+', tokenized)
     merged = ''.join(p[:1].upper() + p[1:] for p in parts if p != '')
@@ -64,6 +65,7 @@ def _to_rust_snake(name, fallback='value'):
     if tokenized[0].isdigit():
         tokenized = 'n_' + tokenized
     if tokenized in RUST_RESERVED_IDENTIFIERS:
+        # Keep generated names valid without requiring caller-side escaping.
         tokenized += '_id'
     return tokenized
 
@@ -76,6 +78,7 @@ def _unique_param_names(params):
         base = _to_rust_snake(raw, fallback='arg' + str(i))
         count = seen.get(base, 0)
         seen[base] = count + 1
+        # If two params normalize to the same token, append a stable suffix.
         result.append(base if count == 0 else (base + '_' + str(count + 1)))
     return result
 
@@ -168,6 +171,7 @@ def _emit_noevent_chain(parser, state, depth, visited=None):
 
     next_visited = set(visited)
     next_visited.add(state)
+    # Track visited states during emission to avoid unbounded code in no-event cycles.
 
     for dest in list(parser.current.graph.neighbors(state)):
         tr = parser.current.graph[state][dest]['data']
@@ -251,6 +255,7 @@ def _emit_event_method(parser, event, arcs):
         if len(param_names) == 1:
             keep_alive = 'let _ = ' + param_names[0] + ';\n'
         else:
+            # Tuple keep-alive avoids unused-variable warnings for multi-arg events.
             keep_alive = 'let _ = (' + ', '.join(param_names) + ');\n'
 
     parser.indent(1)
@@ -542,6 +547,7 @@ def _emit_rust_generated_tests(parser, module_filename):
             if tr.event.name == '':
                 continue
             if tr.guard != '' or len(tr.event.params) > 0:
+                # Skip non-deterministic branches in auto-generated tests.
                 return False
 
             method = _rust_event_method_name(tr.event)
@@ -550,6 +556,7 @@ def _emit_rust_generated_tests(parser, module_filename):
                 should_assert = True
             else:
                 next_tr = parser.current.graph[path[i + 1]][path[i + 2]]['data']
+                # Assert only on externally observable points (before immediate no-event hops).
                 should_assert = (next_tr.event.name != '')
             steps.append((method, dest, should_assert))
 
