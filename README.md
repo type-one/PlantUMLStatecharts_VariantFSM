@@ -141,17 +141,22 @@ Where:
   - `"hpp"` to generate C++11 class-based header file.
   - `"hpp20"` to generate a self-contained C++20 `std::variant` / `std::visit` header file (all-in-one).
   - `"cpp20"` to generate a C++20 `std::variant` / `std::visit` header **and** a matching `.cpp` implementation stub (split mode).
-- `name` is optional and allows giving a postfix to the C++ class name and file.
+  - `"rust"` to generate Rust scaffold output (`.rs`) and companion generated tests (`_tests.rs`).
+- `name` is optional and allows giving a postfix to the generated state machine type/file stem.
 - `-o output_dir` is optional and redirects all generated files (`.cpp`/`.hpp`,
   test files, interpreted `.plantuml`) to the given folder.
 - `-s` / `--snake` enables `snake_case` naming for generated C++ identifiers
   (class names, method names, enum values, file names, mock/test class names).
   This is the default mode.
-- `-c` / `--camel` switches naming to `CamelCase`.
+- `-c` / `--camel` switches C++ naming to `CamelCase`.
+- For target `rust`, language-native Rust naming is always applied; `--camel`
+  is accepted for CLI compatibility but ignored with a warning.
 - `-n namespace` / `--namespace namespace` is optional and wraps the generated
   class in the given C++ namespace (e.g. `-n myapp` or `-n com::acme`).  The
   generated unit-test file adds a matching `using namespace ::myapp;` directive.
+- For target `rust`, `--namespace` is accepted but ignored with a warning.
 - `--thread-safe` is optional and generates mutex-protected code in emitted FSMs.
+- For target `rust`, `--thread-safe` is accepted but currently ignored with a warning.
 - `--auto-flatten` is optional and attempts to flatten hierarchical/composite
   state blocks into a flat FSM before generation.
   Current limits: orthogonal/concurrent regions (`--` / `||`) are still not
@@ -161,6 +166,8 @@ Where:
   leaf state cannot be derived unambiguously.
 - `--clang-format` is optional and runs `clang-format -i` on generated `.hpp`/`.cpp` files.
 - `--check-clang-format` is optional and checks formatting without modifying files.
+- For target `rust`, both clang-format options are accepted for compatibility but
+  ignored with a warning.
 
 Current repository examples with `--auto-flatten`:
 - `SimpleComposite.plantuml`: generates and compiles in both `cpp` and `cpp20`.

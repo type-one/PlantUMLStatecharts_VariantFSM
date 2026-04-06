@@ -37,7 +37,7 @@ def usage(prog=None):
     print('   "hpp"           : generate C++11 class-based header (single-file mode)')
     print('   "hpp20"         : generate C++20 std::variant/std::visit state machine (self-contained header)')
     print('   "cpp20"         : generate C++20 std::variant/std::visit split output (.hpp + .cpp stub)')
-    print('   "rust"          : Rust backend scaffold target (generation not implemented yet)')
+    print('   "rust"          : Rust backend scaffold target')
     print('   [postfix]: is an optional postfix to extend the name of the state machine class')
     print('   [-o <output_dir>]: optional output directory for generated files')
     print('   [-s|--snake]: use snake_case naming for generated symbols (default)')
@@ -71,7 +71,7 @@ def parse_args(argv):
 
     opts = {
         'uml_file': argv[1],
-        'cpp_or_hpp': argv[2],
+        'target': argv[2],
         'postfix': '',
         'output_dir': '.',
         'snake_case': True,
@@ -132,6 +132,16 @@ def parse_args(argv):
         print('Unexpected argument: ' + arg)
         usage(argv[0])
 
+    if opts['target'] == 'rust':
+        if opts['namespace'] != '':
+            print('Warning: --namespace is C++-specific and is ignored for target "rust".', file=sys.stderr)
+        if opts['snake_case'] is False:
+            print('Warning: --camel is ignored for target "rust" (Rust naming policy is language-native).', file=sys.stderr)
+        if opts['thread_safe']:
+            print('Warning: --thread-safe is currently C++-specific and is ignored for target "rust".', file=sys.stderr)
+        if opts['clang_format_mode'] != 'off':
+            print('Warning: --clang-format/--check-clang-format only apply to generated .hpp/.cpp files and are ignored for target "rust".', file=sys.stderr)
+
     return opts
 
 
@@ -143,7 +153,7 @@ def run(parser_cls, argv=None):
     parser = parser_cls()
     parser.translate(
         opts['uml_file'],
-        opts['cpp_or_hpp'],
+        opts['target'],
         opts['postfix'],
         opts['output_dir'],
         snake_case=opts['snake_case'],
