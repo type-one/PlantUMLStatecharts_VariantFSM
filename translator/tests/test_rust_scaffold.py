@@ -261,7 +261,9 @@ C --> B
         content = (out_path / 'cycle_chain.rs').read_text()
 
     event_start = content.index('pub fn go(&mut self) {')
-    event_end = content.index('fn on_transitioning_a_b(&mut self) {')
+    # This minimal diagram has no actions, so no on_transitioning_* methods are
+    # generated.  Use the end of the impl block as the upper bound instead.
+    event_end = content.rindex('\n}')
     go_block = content[event_start:event_end]
 
     # Explicit event transition A->B plus finite no-event chain B->C->B.
