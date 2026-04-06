@@ -382,3 +382,122 @@ def test_rust_c_str_returns_inactive_sentinel_when_not_enabled(run_translator):
     i_guard = c_str_block.index('if !self.enabled { return "--"; }')
     i_match = c_str_block.index('match self.state {')
     assert i_guard < i_match
+
+
+def test_rust_triggers_multi_guard_same_event_dispatch(run_translator):
+    """Same event with multiple guarded/unguarded destinations must emit
+    ordered guard checks that fall through to the unguarded branch.
+
+    Exercises ``Triggers.plantuml``:
+    - ``A --> B : e [x == 10]``   guarded, checked first
+    - ``A --> C : e``              unguarded fallthrough (no else-if needed)
+    - ``A --> D : [x > 10]``       no-event transition from [*] to D (separate)
+
+    Contract for the ``e`` event method:
+    * The guarded A->B check appears before the unconditional A->C assignment.
+    * Both state assignments are present.
+    * No spurious duplicate ``[this](a&)`` lambda (C++20 regression kept here
+      as a structural check in Rust: the single ``e`` method covers all arcs).
+    """
+    with tempfile.TemporaryDirectory(prefix='fsm_rust_triggers_') as out:
+        out_path = Path(out)
+        result = run_translator(
+            ['examples/Triggers.plantuml', 'rust', '-o', str(out_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        content = (out_path / 'triggers.rs').read_text()
+
+    e_start = content.index('pub fn e(&mut self) {')
+    e_end = content.index('\n    fn ', e_start)
+    e_block = content[e_start:e_end]
+
+    # Guarded branch to B must precede unconditional branch to C.
+    assert 'if self.on_guarding_a_b() {' in e_block
+    assert 'self.state = State::B;' in e_block
+    assert 'self.state = State::C;' in e_block
+    i_guard = e_block.index('if self.on_guarding_a_b() {')
+    i_c = e_block.index('self.state = State::C;')
+    assert i_guard < i_c
+
+    # Only one pub fn named 'e' — no duplication.
+    assert content.count('pub fn e(') == 1
+
+
+def test_rust_internal_transition_is_self_loop_without_state_change(run_translator):
+    """'State : on event / action' internal transitions must emit a self-loop
+    event method that runs the action (and optional guard) but never reassigns
+    ``self.state`` and never calls entering/leaving callbacks.
+
+    Exercises ``SimpleFSM.plantuml``:
+    - ``State1 : on event3 [guard3] / action3()``  guarded self-loop
+    - ``State2 : on event5 / action5()``            unguarded self-loop
+    """
+    with tempfile.TemporaryDirectory(prefix='fsm_rust_internal_tr_') as out:
+        out_path = Path(out)
+        result = run_translator(
+            ['examples/SimpleFSM.plantuml', 'rust', '-o', str(out_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        content = (out_path / 'simple_fsm.rs').read_text()
+
+    # --- event3: guarded self-loop on State1 ---
+    e3_start = content.index('pub fn event3(&mut self) {')
+    e3_end = content.index('pub fn event5(&mut self) {')
+    e3_block = content[e3_start:e3_end]
+
+    assert 'if self.on_guarding_state1_state1() {' in e3_block
+    assert 'self.on_transitioning_state1_state1();' in e3_block
+    assert 'self.state = ' not in e3_block
+    assert 'on_entering_' not in e3_block
+    assert 'on_leaving_' not in e3_block
+
+    # --- event5: unguarded self-loop on State2 ---
+    e5_start = content.index('pub fn event5(&mut self) {')
+    e5_end = content.index('\n    fn ', e5_start)
+    e5_block = content[e5_start:e5_end]
+
+    assert 'self.on_transitioning_state2_state2();' in e5_block
+    assert 'self.state = ' not in e5_block
+    assert 'on_entering_' not in e5_block
+    assert 'on_leaving_' not in e5_block
+
+
+def test_rust_rejects_composite_and_orthogonal_diagrams(run_translator):
+    """The Rust backend must reject composite and orthogonal diagrams with a
+    non-zero exit code and a descriptive error message, matching the behaviour
+    of the C++20 backend.
+
+    Exercises three diagrams:
+    - ``ComplexComposite.plantuml`` — deep composite nesting
+    - ``Pompe.plantuml``           — shallow composite with entry actions
+    - ``SimpleOrthogonal.plantuml``— concurrent/orthogonal regions
+    """
+    import pytest
+    failing = [
+        'examples/ComplexComposite.plantuml',
+        'examples/Pompe.plantuml',
+        'examples/SimpleOrthogonal.plantuml',
+    ]
+
+    for source in failing:
+        with tempfile.TemporaryDirectory(prefix='fsm_rust_reject_') as out:
+            result = run_translator(
+                [source, 'rust', '-o', out],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        output = (result.stdout or '') + (result.stderr or '')
+        assert result.returncode != 0, f'{source} should have been rejected'
+        assert 'Unsupported PlantUML diagram features detected:' in output, (
+            f'{source}: expected unsupported-features error, got: {output!r}'
+        )
