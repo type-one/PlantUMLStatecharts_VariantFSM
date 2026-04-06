@@ -353,3 +353,32 @@ A --> B : go
     assert '// --- from PlantUML [footer]' in content
     assert 'end_of_module();' in content
     assert '// --- end [footer]' in content
+
+
+def test_rust_c_str_returns_inactive_sentinel_when_not_enabled(run_translator):
+    """c_str() must return \"--\" when the FSM is inactive (after exit()).
+
+    Contract matching the C++20 backend: `c_str()` returns `"--"` when
+    `m_active` / `enabled` is false, and the real state name when active.
+    """
+    with tempfile.TemporaryDirectory(prefix='fsm_rust_cstr_inactive_') as out:
+        out_path = Path(out)
+        result = run_translator(
+            ['examples/SimpleFSM.plantuml', 'rust', '-o', str(out_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        content = (out_path / 'simple_fsm.rs').read_text()
+
+    c_str_start = content.index('pub fn c_str(&self) -> &\'static str {')
+    c_str_end = content.index('pub fn event1(', c_str_start)
+    c_str_block = content[c_str_start:c_str_end]
+
+    # Inactive guard must come first, before the match.
+    assert 'if !self.enabled { return "--"; }' in c_str_block
+    i_guard = c_str_block.index('if !self.enabled { return "--"; }')
+    i_match = c_str_block.index('match self.state {')
+    assert i_guard < i_match

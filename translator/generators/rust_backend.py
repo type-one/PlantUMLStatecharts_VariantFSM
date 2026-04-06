@@ -351,6 +351,8 @@ def _emit_rust_machine(parser):
     parser.indent(1)
     parser.fd.write('pub fn c_str(&self) -> &\'static str {\n')
     parser.indent(2)
+    parser.fd.write('if !self.enabled { return "--"; }\n')
+    parser.indent(2)
     parser.fd.write('match self.state {\n')
     for state in states:
         parser.indent(3)
