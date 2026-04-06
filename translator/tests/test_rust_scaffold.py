@@ -269,3 +269,36 @@ C --> B
     # Explicit event transition A->B plus finite no-event chain B->C->B.
     assert go_block.count('self.state = State::B;') <= 2
     assert go_block.count('self.state = State::C;') == 1
+
+
+def test_rust_single_param_event_no_unused_parens(run_translator):
+    """Single-parameter events must emit `let _ = param;` without extra parens.
+
+    `let _ = (param);` triggers `unused_parens` in rustc. Regression guard for
+    the keep-alive pattern: single param must use bare assignment, two or more
+    params keep the tuple form.
+    """
+    uml = """@startuml
+[*] --> A
+A --> B : go(speed)
+@enduml
+"""
+
+    with tempfile.TemporaryDirectory(prefix='fsm_rust_keepalive_') as out:
+        out_path = Path(out)
+        uml_path = out_path / 'keepalive.plantuml'
+        uml_path.write_text(uml)
+
+        result = run_translator(
+            [str(uml_path), 'rust', '-o', str(out_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        content = (out_path / 'keepalive.rs').read_text()
+
+    # Bare assignment — no superfluous parentheses.
+    assert 'let _ = speed;' in content
+    assert 'let _ = (speed);' not in content

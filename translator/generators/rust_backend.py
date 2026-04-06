@@ -165,7 +165,10 @@ def _emit_event_method(parser, event, arcs):
         generic_names = ['T' + str(i) for i in range(len(params))]
         generic_decl = '<' + ', '.join(generic_names) + '>'
         signature_params = ', ' + ', '.join([params[i] + ': ' + generic_names[i] for i in range(len(params))])
-        keep_alive = 'let _ = (' + ', '.join(params) + ');\n'
+        if len(params) == 1:
+            keep_alive = 'let _ = ' + params[0] + ';\n'
+        else:
+            keep_alive = 'let _ = (' + ', '.join(params) + ');\n'
 
     parser.indent(1)
     parser.fd.write('pub fn ' + method_name + generic_decl + '(&mut self' + signature_params + ') {\n')
