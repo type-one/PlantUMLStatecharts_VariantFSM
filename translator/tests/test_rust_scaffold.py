@@ -39,8 +39,35 @@ def test_rust_target_generates_mvp_rust_file(run_translator):
 
         content = rust_file.read_text()
         assert 'pub enum State' in content
-        assert 'pub struct simple_fsm' in content
+        assert 'pub struct SimpleFsm' in content
+        assert '#![allow(non_snake_case)]' not in content
+        assert '#![allow(non_camel_case_types)]' not in content
         assert 'match self.state' in content
+
+
+def test_rust_ignores_camel_cli_switch_for_identifier_policy(run_translator):
+    """Rust backend should keep its own naming policy regardless of -c/--camel.
+
+    For backwards compatibility, the C++ backends honor -c, but Rust output
+    should remain idiomatic and deterministic without requiring naming allows.
+    """
+    with tempfile.TemporaryDirectory(prefix='fsm_rust_camel_ignored_') as out:
+        out_path = Path(out)
+        result = run_translator(
+            ['examples/SimpleFSM.plantuml', 'rust', '-c', '-o', str(out_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        rust_file = out_path / 'simple_fsm.rs'
+        assert rust_file.exists()
+        content = rust_file.read_text()
+
+    assert 'pub struct SimpleFsm' in content
+    assert '#![allow(non_snake_case)]' not in content
+    assert '#![allow(non_camel_case_types)]' not in content
 
 
 def test_rust_event_transition_sequence_contract(run_translator):

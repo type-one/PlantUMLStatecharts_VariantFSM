@@ -32,9 +32,21 @@ import re
 from .io_helpers import emit_to_file
 
 
+RUST_RESERVED_IDENTIFIERS = {
+    'as', 'break', 'const', 'continue', 'crate', 'else', 'enum', 'extern',
+    'false', 'fn', 'for', 'if', 'impl', 'in', 'let', 'loop', 'match', 'mod',
+    'move', 'mut', 'pub', 'ref', 'return', 'self', 'Self', 'static', 'struct',
+    'super', 'trait', 'true', 'type', 'unsafe', 'use', 'where', 'while',
+    'async', 'await', 'dyn', 'abstract', 'become', 'box', 'do', 'final',
+    'macro', 'override', 'priv', 'typeof', 'unsized', 'virtual', 'yield',
+    'try',
+}
+
+
 def _to_rust_variant(name):
     """Convert an identifier into a Rust enum variant (PascalCase)."""
-    parts = re.split(r'[^A-Za-z0-9]+', name)
+    tokenized = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', name)
+    parts = re.split(r'[^A-Za-z0-9]+', tokenized)
     merged = ''.join(p[:1].upper() + p[1:] for p in parts if p != '')
     if merged == '':
         merged = 'State'
@@ -43,13 +55,70 @@ def _to_rust_variant(name):
     return merged
 
 
+def _to_rust_snake(name, fallback='value'):
+    """Convert arbitrary identifier text into a Rust snake_case identifier."""
+    tokenized = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', name)
+    tokenized = re.sub(r'[^A-Za-z0-9]+', '_', tokenized).strip('_').lower()
+    if tokenized == '':
+        tokenized = fallback
+    if tokenized[0].isdigit():
+        tokenized = 'n_' + tokenized
+    if tokenized in RUST_RESERVED_IDENTIFIERS:
+        tokenized += '_id'
+    return tokenized
+
+
+def _unique_param_names(params):
+    """Normalize and de-duplicate event parameter names for Rust signatures."""
+    seen = {}
+    result = []
+    for i, raw in enumerate(params):
+        base = _to_rust_snake(raw, fallback='arg' + str(i))
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        result.append(base if count == 0 else (base + '_' + str(count + 1)))
+    return result
+
+
+def _rust_machine_type_name(parser):
+    """Return a Rust-idiomatic PascalCase machine type name."""
+    return _to_rust_variant(parser.current.class_name)
+
+
+def _rust_callback_state_name(parser, state):
+    """Return normalized state token used in generated callback method names."""
+    if state == '[*]':
+        return 'constructor'
+    if state == '*':
+        return 'destructor'
+    return _to_rust_snake(parser.state_name(state), fallback='state')
+
+
+def _rust_guard_function(parser, source, destination):
+    return ('on_guarding_' + _rust_callback_state_name(parser, source) +
+            '_' + _rust_callback_state_name(parser, destination))
+
+
+def _rust_transition_function(parser, source, destination):
+    return ('on_transitioning_' + _rust_callback_state_name(parser, source) +
+            '_' + _rust_callback_state_name(parser, destination))
+
+
+def _rust_state_entering_function(parser, state):
+    return 'on_entering_' + _rust_callback_state_name(parser, state)
+
+
+def _rust_state_leaving_function(parser, state):
+    return 'on_leaving_' + _rust_callback_state_name(parser, state)
+
+
 def _rust_state_variant(parser, state):
     """Map PlantUML state token to Rust State enum variant name."""
     if state == '*':
         return 'Destructor'
     if state == '[*]':
         return 'Constructor'
-    return _to_rust_variant(parser.state_name(state))
+    return _to_rust_variant(_to_rust_snake(state, fallback='state'))
 
 
 def _rust_escape(text):
@@ -107,7 +176,7 @@ def _emit_noevent_chain(parser, state, depth, visited=None):
 
         if tr.guard != '':
             parser.indent(depth)
-            parser.fd.write('if self.' + parser.guard_function(state, dest, False) + '() {\n')
+            parser.fd.write('if self.' + _rust_guard_function(parser, state, dest) + '() {\n')
             inner = depth + 1
         else:
             inner = depth
@@ -115,10 +184,10 @@ def _emit_noevent_chain(parser, state, depth, visited=None):
         src_data = parser.current.graph.nodes[state]['data']
         if src_data.leaving != '':
             parser.indent(inner)
-            parser.fd.write('self.' + parser.state_leaving_function(state, False) + '();\n')
+            parser.fd.write('self.' + _rust_state_leaving_function(parser, state) + '();\n')
         if tr.action != '':
             parser.indent(inner)
-            parser.fd.write('self.' + parser.transition_function(state, dest, False) + '();\n')
+            parser.fd.write('self.' + _rust_transition_function(parser, state, dest) + '();\n')
 
         parser.indent(inner)
         parser.fd.write('self.state = State::' + _rust_state_variant(parser, dest) + ';\n')
@@ -127,7 +196,7 @@ def _emit_noevent_chain(parser, state, depth, visited=None):
             dest_data = parser.current.graph.nodes[dest]['data']
             if dest_data.entering != '':
                 parser.indent(inner)
-                parser.fd.write('self.' + parser.state_entering_function(dest, False) + '();\n')
+                parser.fd.write('self.' + _rust_state_entering_function(parser, dest) + '();\n')
             _emit_noevent_chain(parser, dest, inner, next_visited)
 
         if tr.guard != '':
@@ -148,40 +217,41 @@ def _emit_transition_body(parser, origin, destination, depth):
     if origin == destination:
         if tr.action != '':
             parser.indent(depth)
-            parser.fd.write('self.' + parser.transition_function(origin, destination) + '();\n')
+            parser.fd.write('self.' + _rust_transition_function(parser, origin, destination) + '();\n')
         return
 
     if origin_data.leaving != '':
         parser.indent(depth)
-        parser.fd.write('self.' + parser.state_leaving_function(origin, False) + '();\n')
+        parser.fd.write('self.' + _rust_state_leaving_function(parser, origin) + '();\n')
     if tr.action != '':
         parser.indent(depth)
-        parser.fd.write('self.' + parser.transition_function(origin, destination) + '();\n')
+        parser.fd.write('self.' + _rust_transition_function(parser, origin, destination) + '();\n')
 
     parser.indent(depth)
     parser.fd.write('self.state = State::' + _rust_state_variant(parser, destination) + ';\n')
 
     if destination != '*' and dest_data.entering != '':
         parser.indent(depth)
-        parser.fd.write('self.' + parser.state_entering_function(destination, False) + '();\n')
+        parser.fd.write('self.' + _rust_state_entering_function(parser, destination) + '();\n')
     _emit_noevent_chain(parser, destination, depth)
 
 
 def _emit_event_method(parser, event, arcs):
-    method_name = event.name
+    method_name = _to_rust_snake(event.name, fallback='event')
     params = event.params
 
     generic_decl = ''
     signature_params = ''
     keep_alive = ''
     if len(params) > 0:
+        param_names = _unique_param_names(params)
         generic_names = ['T' + str(i) for i in range(len(params))]
         generic_decl = '<' + ', '.join(generic_names) + '>'
-        signature_params = ', ' + ', '.join([params[i] + ': ' + generic_names[i] for i in range(len(params))])
-        if len(params) == 1:
-            keep_alive = 'let _ = ' + params[0] + ';\n'
+        signature_params = ', ' + ', '.join([param_names[i] + ': ' + generic_names[i] for i in range(len(params))])
+        if len(param_names) == 1:
+            keep_alive = 'let _ = ' + param_names[0] + ';\n'
         else:
-            keep_alive = 'let _ = (' + ', '.join(params) + ');\n'
+            keep_alive = 'let _ = (' + ', '.join(param_names) + ');\n'
 
     parser.indent(1)
     parser.fd.write('pub fn ' + method_name + generic_decl + '(&mut self' + signature_params + ') {\n')
@@ -200,7 +270,7 @@ def _emit_event_method(parser, event, arcs):
             tr = parser.current.graph[origin][destination]['data']
             if tr.guard != '':
                 parser.indent(4)
-                parser.fd.write('if self.' + parser.guard_function(origin, destination, False) + '() {\n')
+                parser.fd.write('if self.' + _rust_guard_function(parser, origin, destination) + '() {\n')
                 _emit_transition_body(parser, origin, destination, 5)
                 parser.indent(5)
                 parser.fd.write('return;\n')
@@ -238,7 +308,7 @@ def _emit_initial_state_selection(parser, neighbors, depth):
         tr = parser.current.graph['[*]'][dest]['data']
         parser.indent(depth)
         if tr.guard != '':
-            parser.fd.write('if self.' + parser.guard_function('[*]', dest, False) + '() {\n')
+            parser.fd.write('if self.' + _rust_guard_function(parser, '[*]', dest) + '() {\n')
             inner = depth + 1
         else:
             parser.fd.write('{\n')
@@ -249,7 +319,7 @@ def _emit_initial_state_selection(parser, neighbors, depth):
         dest_data = parser.current.graph.nodes[dest]['data']
         if dest_data.entering != '':
             parser.indent(inner)
-            parser.fd.write('self.' + parser.state_entering_function(dest, False) + '();\n')
+            parser.fd.write('self.' + _rust_state_entering_function(parser, dest) + '();\n')
         _emit_noevent_chain(parser, dest, inner)
 
         parser.indent(depth)
@@ -260,7 +330,7 @@ def _emit_initial_state_selection(parser, neighbors, depth):
         tr = parser.current.graph['[*]'][dest]['data']
         if tr.guard != '':
             parser.indent(depth)
-            parser.fd.write('if self.' + parser.guard_function('[*]', dest, False) + '() {\n')
+            parser.fd.write('if self.' + _rust_guard_function(parser, '[*]', dest) + '() {\n')
             inner = depth + 1
         else:
             inner = depth
@@ -270,7 +340,7 @@ def _emit_initial_state_selection(parser, neighbors, depth):
         dest_data = parser.current.graph.nodes[dest]['data']
         if dest_data.entering != '':
             parser.indent(inner)
-            parser.fd.write('self.' + parser.state_entering_function(dest, False) + '();\n')
+            parser.fd.write('self.' + _rust_state_entering_function(parser, dest) + '();\n')
         _emit_noevent_chain(parser, dest, inner)
 
         if tr.guard != '':
@@ -287,11 +357,10 @@ def _emit_rust_machine(parser):
 
     initial_neighbors = [n for n in parser.current.graph.neighbors('[*]') if n not in ('[*]', '*')]
     initial_state = initial_neighbors[0] if len(initial_neighbors) > 0 else states[0]
+    machine_type = _rust_machine_type_name(parser)
 
     parser.generate_common_header()
     parser.fd.write('// Rust backend (MVP) generated from PlantUML\n\n')
-    parser.fd.write('#![allow(non_snake_case)]\n')
-    parser.fd.write('#![allow(non_camel_case_types)]\n')
     parser.fd.write('#![allow(dead_code)]\n\n')
 
     _write_extra_code_as_comments(parser, 'header', parser.current.extra_code.header, 0)
@@ -307,12 +376,12 @@ def _emit_rust_machine(parser):
         parser.fd.write('    ' + _rust_state_variant(parser, state) + ',\n')
     parser.fd.write('}\n\n')
 
-    parser.fd.write('pub struct ' + parser.current.class_name + ' {\n')
+    parser.fd.write('pub struct ' + machine_type + ' {\n')
     parser.fd.write('    pub state: State,\n')
     parser.fd.write('    enabled: bool,\n')
     parser.fd.write('}\n\n')
 
-    parser.fd.write('impl ' + parser.current.class_name + ' {\n')
+    parser.fd.write('impl ' + machine_type + ' {\n')
     parser.indent(1)
     parser.fd.write('pub fn new() -> Self {\n')
     parser.indent(2)
@@ -374,7 +443,7 @@ def _emit_rust_machine(parser):
         tr = parser.current.graph[origin][destination]['data']
         if tr.guard != '':
             parser.indent(1)
-            parser.fd.write('fn ' + parser.guard_function(origin, destination, False) + '(&self) -> bool {\n')
+            parser.fd.write('fn ' + _rust_guard_function(parser, origin, destination) + '(&self) -> bool {\n')
             _write_snippet_as_comments(parser, tr.guard, 2)
             parser.indent(2)
             parser.fd.write('true\n')
@@ -382,7 +451,7 @@ def _emit_rust_machine(parser):
             parser.fd.write('}\n\n')
         if tr.action != '':
             parser.indent(1)
-            parser.fd.write('fn ' + parser.transition_function(origin, destination, False) + '(&mut self) {\n')
+            parser.fd.write('fn ' + _rust_transition_function(parser, origin, destination) + '(&mut self) {\n')
             _write_snippet_as_comments(parser, tr.action, 2)
             parser.indent(2)
             parser.fd.write('// TODO: implement Rust transition action\n')
@@ -395,7 +464,7 @@ def _emit_rust_machine(parser):
         state = parser.current.graph.nodes[node]['data']
         if state.entering != '':
             parser.indent(1)
-            parser.fd.write('fn ' + parser.state_entering_function(node, False) + '(&mut self) {\n')
+            parser.fd.write('fn ' + _rust_state_entering_function(parser, node) + '(&mut self) {\n')
             _write_snippet_as_comments(parser, state.entering, 2)
             parser.indent(2)
             parser.fd.write('// TODO: implement Rust entering action\n')
@@ -403,7 +472,7 @@ def _emit_rust_machine(parser):
             parser.fd.write('}\n\n')
         if state.leaving != '':
             parser.indent(1)
-            parser.fd.write('fn ' + parser.state_leaving_function(node, False) + '(&mut self) {\n')
+            parser.fd.write('fn ' + _rust_state_leaving_function(parser, node) + '(&mut self) {\n')
             _write_snippet_as_comments(parser, state.leaving, 2)
             parser.indent(2)
             parser.fd.write('// TODO: implement Rust leaving action\n')

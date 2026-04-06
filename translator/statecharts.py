@@ -2300,6 +2300,9 @@ class Parser(ParsingMixin, object):
         self.master = StateMachine()
         self.uml_file = uml_file
         self.output_dir = output_dir
+        if cpp_or_hpp == 'rust':
+            # Rust backend enforces language-native naming independently.
+            snake_case = True
         self.snake_case = snake_case
         self.namespace = namespace
         self.gen_mode = gen_mode
