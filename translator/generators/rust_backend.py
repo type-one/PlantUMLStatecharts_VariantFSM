@@ -66,6 +66,19 @@ def _write_snippet_as_comments(parser, code, depth):
         parser.fd.write('// from PlantUML: ' + line + '\n')
 
 
+def _write_extra_code_as_comments(parser, label, code, depth):
+    """Emit a PlantUML extra-code section as a fenced Rust comment block."""
+    if not code or not code.strip():
+        return
+    parser.indent(depth)
+    parser.fd.write('// --- from PlantUML [' + label + '] (translate to Rust as needed) ---\n')
+    for line in code.splitlines():
+        parser.indent(depth)
+        parser.fd.write('// ' + line + '\n')
+    parser.indent(depth)
+    parser.fd.write('// --- end [' + label + '] ---\n')
+
+
 def _group_arcs_by_origin(arcs):
     grouped = {}
     for origin, destination in arcs:
@@ -281,6 +294,13 @@ def _emit_rust_machine(parser):
     parser.fd.write('#![allow(non_camel_case_types)]\n')
     parser.fd.write('#![allow(dead_code)]\n\n')
 
+    _write_extra_code_as_comments(parser, 'header', parser.current.extra_code.header, 0)
+    if parser.current.extra_code.header and parser.current.extra_code.header.strip():
+        parser.fd.write('\n')
+
+    if parser.current.extra_code.brief and parser.current.extra_code.brief.strip():
+        parser.fd.write('//! ' + parser.current.extra_code.brief.strip() + '\n\n')
+
     parser.fd.write('#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n')
     parser.fd.write('pub enum State {\n')
     for state in states:
@@ -314,6 +334,7 @@ def _emit_rust_machine(parser):
     parser.fd.write('pub fn enter(&mut self) {\n')
     parser.indent(2)
     parser.fd.write('self.enabled = true;\n')
+    _write_extra_code_as_comments(parser, 'init', parser.current.extra_code.init, 2)
     _emit_initial_state_selection(parser, initial_neighbors, 2)
     parser.indent(1)
     parser.fd.write('}\n\n')
@@ -387,7 +408,13 @@ def _emit_rust_machine(parser):
             parser.indent(1)
             parser.fd.write('}\n\n')
 
+    _write_extra_code_as_comments(parser, 'code', parser.current.extra_code.code, 1)
+    if parser.current.extra_code.code and parser.current.extra_code.code.strip():
+        parser.fd.write('\n')
+
     parser.fd.write('}\n')
+
+    _write_extra_code_as_comments(parser, 'footer', parser.current.extra_code.footer, 0)
 
 
 def generate_rust_backend(parser, target, separated):

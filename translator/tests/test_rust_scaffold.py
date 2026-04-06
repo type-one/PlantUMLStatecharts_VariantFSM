@@ -302,3 +302,54 @@ A --> B : go(speed)
     # Bare assignment — no superfluous parentheses.
     assert 'let _ = speed;' in content
     assert 'let _ = (speed);' not in content
+
+
+def test_rust_extra_code_annotations_emitted_as_comments(run_translator):
+    """PlantUML '[header]', '[init]', '[code]', '[footer]' annotations must
+    appear in the generated Rust file as fenced comment blocks.
+
+    These sections contain C++ code which cannot be inlined into Rust directly.
+    The backend must preserve the original text as comments so the author can
+    translate them manually. Generation must still succeed and produce a file
+    that compiles as a Rust library.
+    """
+    uml = """@startuml
+'[header] use std::sync::Mutex;
+'[init] reset_counters();
+'[code] some_field: u32,
+'[footer] end_of_module();
+[*] --> A
+A --> B : go
+@enduml
+"""
+
+    with tempfile.TemporaryDirectory(prefix='fsm_rust_extracode_') as out:
+        out_path = Path(out)
+        uml_path = out_path / 'extra.plantuml'
+        uml_path.write_text(uml)
+
+        result = run_translator(
+            [str(uml_path), 'rust', '-o', str(out_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        content = (out_path / 'extra.rs').read_text()
+
+    assert '// --- from PlantUML [header]' in content
+    assert '// use std::sync::Mutex;' in content
+    assert '// --- end [header]' in content
+
+    assert '// --- from PlantUML [init]' in content
+    assert 'reset_counters();' in content
+    assert '// --- end [init]' in content
+
+    assert '// --- from PlantUML [code]' in content
+    assert 'some_field: u32,' in content
+    assert '// --- end [code]' in content
+
+    assert '// --- from PlantUML [footer]' in content
+    assert 'end_of_module();' in content
+    assert '// --- end [footer]' in content
