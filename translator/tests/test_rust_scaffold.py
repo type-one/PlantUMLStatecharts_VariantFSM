@@ -45,6 +45,26 @@ def test_rust_target_generates_mvp_rust_file(run_translator):
         assert 'match self.state' in content
 
 
+def test_rust_target_generates_companion_tests_file(run_translator):
+    with tempfile.TemporaryDirectory(prefix='fsm_rust_tests_file_') as out:
+        out_path = Path(out)
+        result = run_translator(
+            ['examples/SimpleFSM.plantuml', 'rust', '-o', str(out_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        tests_file = out_path / 'simple_fsm_tests.rs'
+        assert tests_file.exists()
+        content = tests_file.read_text()
+
+    assert '#[test]' in content
+    assert 'mod simple_fsm;' in content
+    assert 'initial_state_contract' in content
+
+
 def test_rust_ignores_camel_cli_switch_for_identifier_policy(run_translator):
     """Rust backend should keep its own naming policy regardless of -c/--camel.
 

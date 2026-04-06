@@ -488,6 +488,99 @@ def _emit_rust_machine(parser):
     _write_extra_code_as_comments(parser, 'footer', parser.current.extra_code.footer, 0)
 
 
+def _rust_event_method_name(event):
+    """Return generated Rust method name for an event object."""
+    return _to_rust_snake(event.name, fallback='event')
+
+
+def _emit_rust_generated_tests(parser, module_filename):
+    """Emit a companion Rust test file for deterministic FSM paths/cycles.
+
+    The generated tests intentionally avoid guarded and parameterized events,
+    because they require user-provided data/logic that cannot be inferred.
+    """
+    machine_type = _rust_machine_type_name(parser)
+    module_name = _to_rust_snake(parser.current.class_name, fallback='fsm_module')
+
+    parser.generate_common_header()
+    parser.fd.write('// Rust backend generated tests (deterministic subset)\n\n')
+    parser.fd.write('#[path = "' + module_filename + '"]\n')
+    parser.fd.write('mod ' + module_name + ';\n')
+    parser.fd.write('use ' + module_name + '::*;\n\n')
+
+    parser.fd.write('#[test]\n')
+    parser.fd.write('fn initial_state_contract() {\n')
+    parser.indent(1)
+    parser.fd.write('let fsm = ' + machine_type + '::new();\n')
+    parser.indent(1)
+    parser.fd.write('assert!(fsm.is_active());\n')
+
+    initial_neighbors = [
+        n for n in parser.current.graph.neighbors('[*]')
+        if n not in ('[*]', '*')
+    ]
+    if len(initial_neighbors) == 1:
+        dest = initial_neighbors[0]
+        tr = parser.current.graph['[*]'][dest]['data']
+        if tr.guard == '':
+            parser.indent(1)
+            parser.fd.write('assert_eq!(fsm.c_str(), "' + _rust_escape(dest) + '");\n')
+        else:
+            parser.indent(1)
+            parser.fd.write('assert_ne!(fsm.c_str(), "--");\n')
+    else:
+        parser.indent(1)
+        parser.fd.write('assert_ne!(fsm.c_str(), "--");\n')
+    parser.fd.write('}\n\n')
+
+    def emit_sequence_test(test_name, path):
+        steps = []
+        for i in range(len(path) - 1):
+            origin = path[i]
+            dest = path[i + 1]
+            tr = parser.current.graph[origin][dest]['data']
+            if tr.event.name == '':
+                continue
+            if tr.guard != '' or len(tr.event.params) > 0:
+                return False
+
+            method = _rust_event_method_name(tr.event)
+            should_assert = False
+            if i == len(path) - 2:
+                should_assert = True
+            else:
+                next_tr = parser.current.graph[path[i + 1]][path[i + 2]]['data']
+                should_assert = (next_tr.event.name != '')
+            steps.append((method, dest, should_assert))
+
+        if len(steps) == 0:
+            return False
+
+        parser.fd.write('#[test]\n')
+        parser.fd.write('fn ' + test_name + '() {\n')
+        parser.indent(1)
+        parser.fd.write('let mut fsm = ' + machine_type + '::new();\n')
+        for method, dest, should_assert in steps:
+            parser.indent(1)
+            parser.fd.write('fsm.' + method + '();\n')
+            if should_assert:
+                parser.indent(1)
+                parser.fd.write('assert_eq!(fsm.c_str(), "' + _rust_escape(dest) + '");\n')
+        parser.fd.write('}\n\n')
+        return True
+
+    count = 0
+    for cycle in parser.current.graph_cycles():
+        name = 'cycle_path_' + str(count)
+        if emit_sequence_test(name, cycle):
+            count += 1
+
+    for path in parser.current.graph_all_paths_to_sinks():
+        name = 'sink_path_' + str(count)
+        if emit_sequence_test(name, path):
+            count += 1
+
+
 def generate_rust_backend(parser, target, separated):
     """Generate Rust MVP artifacts (`.rs`) for all parsed machines."""
     del separated  # Rust MVP emits one file per machine; no separate test-main flow yet.
@@ -497,3 +590,8 @@ def generate_rust_backend(parser, target, separated):
         filename = parser.current.class_name + '.rs'
         rust_target = os.path.join(parser.output_dir, filename)
         emit_to_file(parser, rust_target, lambda: _emit_rust_machine(parser))
+
+        tests_filename = parser.current.class_name + '_tests.rs'
+        tests_target = os.path.join(parser.output_dir, tests_filename)
+        emit_to_file(parser, tests_target,
+                     lambda: _emit_rust_generated_tests(parser, filename))
