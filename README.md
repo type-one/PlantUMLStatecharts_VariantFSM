@@ -45,6 +45,15 @@ This repository also contains several more evolved
 sure how state machines work, there are several links explaining them given
 in the last section of this document.
 
+Rust backend validation status and per-example results are tracked in
+[doc/rust-final-check.md](doc/rust-final-check.md).
+
+C++11 backend validation status and per-example results are tracked in
+[doc/cpp11-final-check.md](doc/cpp11-final-check.md).
+
+C++20 backend validation status and per-example results are tracked in
+[doc/cpp20-final-check.md](doc/cpp20-final-check.md).
+
 ## Limitation: what the tools cannot offer to you
 
 - Backend coverage is not yet at full parity across languages. The C++ backends
