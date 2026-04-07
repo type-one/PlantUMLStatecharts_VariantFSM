@@ -8,20 +8,20 @@ This report validates the C++20 backend behavior across all example diagrams in 
 
 - Direct generation: `python3 -m translator.statecharts <diagram> cpp20 -o <out>`
 - Auto-flatten generation: `python3 -m translator.statecharts <diagram> cpp20 --auto-flatten -o <out>`
-- Compile-smoke (when direct generation succeeds): compile generated implementation with `g++ -std=c++20 -c`
-- Generated test execution status
+- Compile-check (when direct generation succeeds): compile generated implementation with `g++ -std=c++20 -c`
+- Generated tests execution status
 
 ## Summary
 
 - Total diagrams checked: 17
 - Direct C++20 generation: 13 OK, 4 FAIL
 - C++20 generation with auto-flatten: 16 OK, 1 FAIL
-- C++20 compile-smoke (for direct-generation OK cases): 12 OK, 1 FAIL
-- Generated test execution: 13 skipped (`gtest/gmock` not available in current environment)
+- C++20 compile-check (for direct-generation OK cases): 12 OK, 1 FAIL
+- Generated tests execution (for direct-generation OK cases): 0 OK, 0 FAIL, 13 SKIP (`gtest/gmock` not available in current environment)
 
 ## Per-Diagram Matrix
 
-| Diagram | Direct cpp20 | Cpp20 with --auto-flatten | Compile-smoke | Generated tests |
+| Diagram | Direct generation | Generation with --auto-flatten | Compile-check | Generated tests execution |
 |---|---|---|---|---|
 | BadSwitch1 | OK | OK | OK | SKIP_GTEST_GMOCK_MISSING |
 | BadSwitch2 | OK | OK | OK | SKIP_GTEST_GMOCK_MISSING |
@@ -45,6 +45,6 @@ This report validates the C++20 backend behavior across all example diagrams in 
 
 - The direct-generation FAIL set is consistent with unsupported hierarchical/orthogonal features unless flattening is requested.
 - `SimpleOrthogonal` still fails even with `--auto-flatten`, which is expected because orthogonal/concurrent regions are not supported.
-- Compile-smoke failure:
+- Compile-check failure:
   - `DigitalWatch`: undeclared symbols from model snippets (e.g., `min`, `hours`) in generated C++ code.
-- Generated test execution is marked as skipped in this run because `gtest`/`gmock` were not available via `pkg-config` in the current environment.
+- Generated tests execution is marked as skipped in this run because `gtest`/`gmock` were not available via `pkg-config` in the current environment.
