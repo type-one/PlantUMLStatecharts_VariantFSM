@@ -27,8 +27,10 @@ strategy (C++11 or C++20 variant) while delegating shared loop mechanics to
 
 from .cpp11_backend import generate_cpp11_backend
 from .cpp20_backend import generate_cpp20_backend
+from .rust_backend import generate_rust_backend
 
 __all__ = [
 	'generate_cpp11_backend',
 	'generate_cpp20_backend',
+	'generate_rust_backend',
 ]

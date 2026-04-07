@@ -1,10 +1,10 @@
 # PlantUML Statecharts (State Machine) Translator
 
 A Python3 tool parsing [PlantUML statecharts](https://plantuml.com/fr/state-diagram)
-scripts and generating C++ code with its unit tests.
+scripts and generating code and companion tests from them.
 
 The original C++11 version is hosted in [Lecrapouille/Statecharts](https://github.com/Lecrapouille/Statecharts).
-This modded version is hosted in [type-one/PlantUMLStatecharts_VariantFSM](https://github.com/type-one/PlantUMLStatecharts_VariantFSM) and supports both C++11 and C++20 `std::variant` FSM generation.
+This modded version is hosted in [type-one/PlantUMLStatecharts_VariantFSM](https://github.com/type-one/PlantUMLStatecharts_VariantFSM) and supports C++11, C++20 `std::variant`, and Rust scaffold FSM generation.
 
 This repository contains:
 - A single C++11 header file containing the base code for defining a state
@@ -18,6 +18,7 @@ This repository contains:
   (aka finite state machines or FSM) in either:
   - C++11 class-based code inheriting from the base state machine runtime.
   - C++20 `std::variant` / `std::visit` code in a self-contained generated class.
+  - Rust scaffold code with companion generated tests.
   The code is [here](translator/statecharts.py).
 - Several [examples](examples) of PlantUML statecharts are given.
 
@@ -27,9 +28,9 @@ The Python script offers you:
   [boost](https://github.com/boost-ext/sml) lib).
 - To do some basic verification to check if your state machine is well
   formed.
-- To generate C++ unit tests (using [Google
-  tests](https://github.com/google/googletest)) to verify if your state machine
-  is functional.
+- To generate companion tests for supported backends: [Google
+  tests](https://github.com/google/googletest) for C++ outputs and generated
+  Rust tests for the Rust scaffold backend.
 - The goal of this tool is to separate things: one part is to manage the logic of
   how a state machine shall work (the base class), and the second part is to write
   code in a descriptive way (the child class).
@@ -44,9 +45,19 @@ This repository also contains several more evolved
 sure how state machines work, there are several links explaining them given
 in the last section of this document.
 
+Rust backend validation status and per-example results are tracked in
+[doc/rust-final-check.md](doc/rust-final-check.md).
+
+C++11 backend validation status and per-example results are tracked in
+[doc/cpp11-final-check.md](doc/cpp11-final-check.md).
+
+C++20 backend validation status and per-example results are tracked in
+[doc/cpp20-final-check.md](doc/cpp20-final-check.md).
+
 ## Limitation: what the tools cannot offer to you
 
-- Generate only C++ code. You can help contributing to generate other languages.
+- Backend coverage is not yet at full parity across languages. The C++ backends
+  remain the most complete, while Rust currently targets scaffold generation.
 - The tool only parses simple finite state machines. Hierarchical, orthogonal,
   concurrent, composite, fork/join, pseudo-states, and history are not
   supported.
@@ -61,16 +72,15 @@ in the last section of this document.
 - Does not offer formal proof to check if your output transitions from a state
   are mutually exclusive or if some branches are not reachable. This is currently
   too complex for me to develop (any help is welcome): we need to parse and
-  understand C++ code. For example, in the previous [diagram](doc/RichMan.png),
+  understand generated guard/action code. For example, in the previous [diagram](doc/RichMan.png),
   if the initial count of quarters starts with a negative value, you will be stuck in
   the state `CountQuarter`. In the same idea: events on output transitions shall
-  be mutually exclusive but the tool cannot parse C++ logic. And finally for
+  be mutually exclusive but the tool cannot parse arbitrary user logic. And finally for
   unit tests, to help generate good values
-- Does not give 100% of compilable C++ code source. It depends on the code of
-  your guards and actions. It should be simple valid C++ code. The main code of
-  the generated state machine is functional you do not have to modify it but you
-  may have to clean a little the code for your guards, actions, add member
-  variables to complete the compilation.
+- Does not guarantee 100% immediately compilable generated output. It depends on
+  the code of your guards and actions. The generated state-machine skeleton is
+  functional, but you may still have to adjust guard/action snippets or add
+  missing data members and helper code to complete compilation.
 
 ### Compile-safe stubs for unresolved callbacks
 
@@ -107,9 +117,9 @@ and run unit tests incrementally.
 - Python3 and the following packages:
   - [Lark](https://github.com/lark-parser/lark) a parsing toolkit for Python. It
     is used for reading PlantUML files.
-  - [Networkx](https://networkx.org/) before the PlantUML is translated into C++
-    file, a directed graph structure is created as an intermediate structure before
-    generating the C++ code (shall be ideally a MultiDiGraph).
+  - [Networkx](https://networkx.org/) before PlantUML is translated into target
+    source files, a directed graph structure is created as an intermediate
+    structure before code generation (shall be ideally a MultiDiGraph).
 - [PlantUML](https://plantuml.com) called by the Makefile to generate PNG pictures
   of examples but it is not used by our Python3 script.
 - C++ compiler:
@@ -141,17 +151,22 @@ Where:
   - `"hpp"` to generate C++11 class-based header file.
   - `"hpp20"` to generate a self-contained C++20 `std::variant` / `std::visit` header file (all-in-one).
   - `"cpp20"` to generate a C++20 `std::variant` / `std::visit` header **and** a matching `.cpp` implementation stub (split mode).
-- `name` is optional and allows giving a postfix to the C++ class name and file.
-- `-o output_dir` is optional and redirects all generated files (`.cpp`/`.hpp`,
-  test files, interpreted `.plantuml`) to the given folder.
+  - `"rust"` to generate Rust scaffold output (`.rs`) and companion generated tests (`_tests.rs`).
+- `name` is optional and allows giving a postfix to the generated state machine type/file stem.
+- `-o output_dir` is optional and redirects all generated files (target source
+  files, companion tests, interpreted `.plantuml`) to the given folder.
 - `-s` / `--snake` enables `snake_case` naming for generated C++ identifiers
   (class names, method names, enum values, file names, mock/test class names).
   This is the default mode.
-- `-c` / `--camel` switches naming to `CamelCase`.
+- `-c` / `--camel` switches C++ naming to `CamelCase`.
+- For target `rust`, language-native Rust naming is always applied; `--camel`
+  is accepted for CLI compatibility but ignored with a warning.
 - `-n namespace` / `--namespace namespace` is optional and wraps the generated
   class in the given C++ namespace (e.g. `-n myapp` or `-n com::acme`).  The
   generated unit-test file adds a matching `using namespace ::myapp;` directive.
+- For target `rust`, `--namespace` is accepted but ignored with a warning.
 - `--thread-safe` is optional and generates mutex-protected code in emitted FSMs.
+- For target `rust`, `--thread-safe` is accepted but currently ignored with a warning.
 - `--auto-flatten` is optional and attempts to flatten hierarchical/composite
   state blocks into a flat FSM before generation.
   Current limits: orthogonal/concurrent regions (`--` / `||`) are still not
@@ -161,6 +176,8 @@ Where:
   leaf state cannot be derived unambiguously.
 - `--clang-format` is optional and runs `clang-format -i` on generated `.hpp`/`.cpp` files.
 - `--check-clang-format` is optional and checks formatting without modifying files.
+- For target `rust`, both clang-format options are accepted for compatibility but
+  ignored with a warning.
 
 Current repository examples with `--auto-flatten`:
 - `SimpleComposite.plantuml`: generates and compiles in both `cpp` and `cpp20`.
@@ -175,7 +192,7 @@ Example:
 ./translator/statecharts.py foo.plantuml cpp controller
 ```
 
-Will create a `foo_controller.cpp` file with a class name `foo_controller`
+Will create a `foo_controller.cpp` file with a generated type name `foo_controller`
 (default `snake_case`).
 
 Generate a self-contained C++20 header:
@@ -195,11 +212,11 @@ Creates `foo_controller.hpp` (full definition) and `foo_controller.cpp` (stub).
 Generate into a specific output directory:
 ```
 ./translator/statecharts.py foo.plantuml hpp20 controller -o ../build/generated
+```
 
 Attempt auto-flattening of hierarchical composites before generation:
 ```
 ./translator/statecharts.py examples/SimpleComposite.plantuml cpp20 --auto-flatten -o ../build/generated
-```
 ```
 
 Generate with `snake_case` naming convention and a C++ namespace:
@@ -209,8 +226,6 @@ Generate with `snake_case` naming convention and a C++ namespace:
 
 Creates `foo.hpp` with `class foo` inside `namespace myapp { ... }`, and
 `foo_tests.cpp` with `class mock_foo` and `TEST(foo_tests, ...)` entries.
-
-Will create generated files in `../build/generated`.
 
 Typical C++20 compilation command:
 ```

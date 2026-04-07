@@ -32,13 +32,13 @@ try:
     from .naming import camel_to_snake, CPP_RESERVED_IDENTIFIERS
     from .model import Event, Transition, StateMachine
     from .parsing import ParsingMixin
-    from .generators import generate_cpp11_backend, generate_cpp20_backend
+    from .generators import generate_cpp11_backend, generate_cpp20_backend, generate_rust_backend
     from .generators.io_helpers import emit_to_file
 except ImportError:
     from naming import camel_to_snake, CPP_RESERVED_IDENTIFIERS
     from model import Event, Transition, StateMachine
     from parsing import ParsingMixin
-    from generators import generate_cpp11_backend, generate_cpp20_backend
+    from generators import generate_cpp11_backend, generate_cpp20_backend, generate_rust_backend
     from generators.io_helpers import emit_to_file
 
 
@@ -2229,9 +2229,9 @@ class Parser(ParsingMixin, object):
         generate_cpp20_backend(self, cxxfile, separated)
 
     ###########################################################################
-    ### Entry point for translating a plantUML file into a C++ source file.
+    ### Entry point for translating a plantUML file into target source files.
     ### param[in] uml_file: path to the plantuml file.
-    ### param[in] cpp_or_hpp: generated a C++ source file ('cpp') or a C++ header file ('hpp').
+    ### param[in] target: generation target ('cpp'/'hpp'/'cpp20'/'hpp20'/'rust').
     ### param[in] postfix: postfix name for the state machine name.
     ###########################################################################
     def format_generated_files(self, check_only=False):
@@ -2271,10 +2271,10 @@ class Parser(ParsingMixin, object):
                 except subprocess.CalledProcessError:
                     self.fatal('Formatting failed for generated file ' + str(file_path))
 
-    def translate(self, uml_file, cpp_or_hpp, postfix, output_dir='.', snake_case=True,
+    def translate(self, uml_file, target, postfix, output_dir='.', snake_case=True,
                   namespace='', gen_mode='inline', clang_format_mode='off', thread_safe=False,
                   auto_flatten=False):
-        """Parse one PlantUML file and generate target C++ artifacts end-to-end."""
+        """Parse one PlantUML file and generate target language artifacts end-to-end."""
         # Make the parser understand the plantUML grammar
         if self.parser == None:
             grammar_file = str(Path(__file__).resolve().with_name('statecharts.ebnf'))
@@ -2300,6 +2300,9 @@ class Parser(ParsingMixin, object):
         self.master = StateMachine()
         self.uml_file = uml_file
         self.output_dir = output_dir
+        if target == 'rust':
+            # Rust backend enforces language-native naming independently.
+            snake_case = True
         self.snake_case = snake_case
         self.namespace = namespace
         self.gen_mode = gen_mode
@@ -2326,12 +2329,14 @@ class Parser(ParsingMixin, object):
         for self.current in self.machines.values():
             self.current.is_determinist()
             self.manage_noevents()
-        # Generate the C++ code
-        if cpp_or_hpp in ('cpp20', 'hpp20'):
-            bare = 'hpp' if cpp_or_hpp == 'hpp20' else 'cpp'
+        # Generate target backend code.
+        if target == 'rust':
+            generate_rust_backend(self, target, False)
+        elif target in ('cpp20', 'hpp20'):
+            bare = 'hpp' if target == 'hpp20' else 'cpp'
             self.generate_variant_cxx_code(bare, False)
         else:
-            self.generate_cxx_code(cpp_or_hpp, False)
+            self.generate_cxx_code(target, False)
         if clang_format_mode == 'format':
             self.format_generated_files(False)
         elif clang_format_mode == 'check':

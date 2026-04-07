@@ -1,6 +1,9 @@
 *.plantuml
+*.h
+*.c
 *.hpp
 *.cpp
+*.rs
 *.gch
 *.out
 *.o

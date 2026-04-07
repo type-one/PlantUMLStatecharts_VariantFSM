@@ -23,20 +23,21 @@
 import sys
 
 
-ALLOWED_TARGETS = ['cpp', 'hpp', 'cpp20', 'hpp20']
+ALLOWED_TARGETS = ['cpp', 'hpp', 'cpp20', 'hpp20', 'rust']
 
 
 def usage(prog=None):
     """Print CLI usage information and terminate with error status."""
     if prog is None:
         prog = sys.argv[0]
-    print('Command line: ' + prog + ' <plantuml file> cpp|hpp|cpp20|hpp20 [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>] [--thread-safe] [--auto-flatten] [--clang-format|--check-clang-format]')
+    print('Command line: ' + prog + ' <plantuml file> cpp|hpp|cpp20|hpp20|rust [postfix] [-o <output_dir>] [-s|--snake] [-c|--camel] [-n <namespace>] [--thread-safe] [--auto-flatten] [--clang-format|--check-clang-format]')
     print('Where:')
     print('   <plantuml file>: the path of a plantuml statechart')
     print('   "cpp"           : generate C++11 split output (.hpp + .cpp include unit)')
     print('   "hpp"           : generate C++11 class-based header (single-file mode)')
     print('   "hpp20"         : generate C++20 std::variant/std::visit state machine (self-contained header)')
     print('   "cpp20"         : generate C++20 std::variant/std::visit split output (.hpp + .cpp stub)')
+    print('   "rust"          : Rust backend scaffold target')
     print('   [postfix]: is an optional postfix to extend the name of the state machine class')
     print('   [-o <output_dir>]: optional output directory for generated files')
     print('   [-s|--snake]: use snake_case naming for generated symbols (default)')
@@ -65,12 +66,12 @@ def parse_args(argv):
         usage(argv[0] if argc > 0 else None)
 
     if argv[2] not in ALLOWED_TARGETS:
-        print('Invalid ' + argv[2] + '. Please set instead "cpp"/"hpp" (C++11) or "cpp20"/"hpp20" (C++20 std::variant)')
+        print('Invalid ' + argv[2] + '. Please set instead "cpp"/"hpp" (C++11), "cpp20"/"hpp20" (C++20 std::variant), or "rust" (scaffold)')
         usage(argv[0])
 
     opts = {
         'uml_file': argv[1],
-        'cpp_or_hpp': argv[2],
+        'target': argv[2],
         'postfix': '',
         'output_dir': '.',
         'snake_case': True,
@@ -131,6 +132,16 @@ def parse_args(argv):
         print('Unexpected argument: ' + arg)
         usage(argv[0])
 
+    if opts['target'] == 'rust':
+        if opts['namespace'] != '':
+            print('Warning: --namespace is C++-specific and is ignored for target "rust".', file=sys.stderr)
+        if opts['snake_case'] is False:
+            print('Warning: --camel is ignored for target "rust" (Rust naming policy is language-native).', file=sys.stderr)
+        if opts['thread_safe']:
+            print('Warning: --thread-safe is currently C++-specific and is ignored for target "rust".', file=sys.stderr)
+        if opts['clang_format_mode'] != 'off':
+            print('Warning: --clang-format/--check-clang-format only apply to generated .hpp/.cpp files and are ignored for target "rust".', file=sys.stderr)
+
     return opts
 
 
@@ -142,7 +153,7 @@ def run(parser_cls, argv=None):
     parser = parser_cls()
     parser.translate(
         opts['uml_file'],
-        opts['cpp_or_hpp'],
+        opts['target'],
         opts['postfix'],
         opts['output_dir'],
         snake_case=opts['snake_case'],

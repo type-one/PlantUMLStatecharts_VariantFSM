@@ -1,4 +1,5 @@
 *.o
+*.rlib
 *~
 examples/build
 
@@ -6,4 +7,8 @@ examples/build
 
 tmp_gen_*
 tmp_test_*
+tmp_cli_*
+tmp_rust_*
+tmp_cpp11_*
+tmp_cpp20_*
 .tmp*
